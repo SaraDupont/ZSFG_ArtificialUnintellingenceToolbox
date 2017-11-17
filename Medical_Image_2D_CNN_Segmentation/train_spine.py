@@ -1,3 +1,4 @@
+##
 from __future__ import print_function
 
 import os
@@ -389,7 +390,7 @@ def test_model(training_type = 'sct', tissue = 'spine'):
         
         return dice, dice_propseg
 
-def plot_model(model)  
+def plot_model(model):
     plot_model(model, to_file='model.png', show_shapes = True)    
     
 
