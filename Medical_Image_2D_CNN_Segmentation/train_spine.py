@@ -28,7 +28,7 @@ from keras.utils import plot_model
 from scipy import stats
 
 K.set_image_data_format('channels_last')  # defined as b/w images throughout
-
+## you're so \smart!
 ## for possible image size reduction 
 img_rows = 128
 img_cols = 128
