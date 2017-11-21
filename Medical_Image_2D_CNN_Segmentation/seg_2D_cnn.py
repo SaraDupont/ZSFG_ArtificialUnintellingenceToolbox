@@ -2,6 +2,7 @@ import os
 import argparse
 from utils import *
 import nibabel as nib
+import numpy as np
 import tensorflow as tf
 from sklearn.cross_validation import train_test_split
 from keras.models import Model
@@ -122,6 +123,8 @@ class Segmentation():
             # TODO: IF OTHER PREPROCESSING STEPS ON ALL IMAGES ARE NEEDED, ADD HERE
             #
             # add preprocessed images and masks to list
+            ###########################################################
+            ## TODO: What is standardization function ?
             list_im_preprocessed.append(standardization(im_resample))
             list_mask_preprocessed.append(mask_resample)
         #
@@ -130,22 +133,22 @@ class Segmentation():
         # select subjects used for training and validation
         self.list_subj_train, self.list_subj_valid, list_im_train, list_im_validation, list_mask_train, list_mask_validation = train_test_split(self.list_subj_train, list_im_train, list_mask_train, test_size=self.valid_split, train_size=1-self.valid_split)
 
-        self.list_im_train = [im.data for im in list_im_train]
-        self.list_im_valid = [im.data for im in list_im_validation]
-        self.list_im_test = [im.data for im in list_im_test]
+        self.list_im_train = [im.get_data() for im in list_im_train]
+        self.list_im_valid = [im.get_data() for im in list_im_validation]
+        self.list_im_test = [im.get_data() for im in list_im_test]
         
-        self.list_mask_train = [mask.data for mask in list_mask_train]
-        self.list_mask_valid = [mask.data for mask in list_mask_validation]
-        self.list_mask_test = [mask.data for mask in list_mask_test]
+        self.list_mask_train = [mask.get_data() for mask in list_mask_train]
+        self.list_mask_valid = [mask.get_data() for mask in list_mask_validation]
+        self.list_mask_test = [mask.get_data() for mask in list_mask_test]
         
-        self.train_imgs_tensor = np.concatenate(list_im_train, axis = 0)
-        self.train_masks_tensor = np.concatenate(list_mask_train, axis = 0)
+        self.train_imgs_tensor = np.concatenate(self.list_im_train, axis = 0)
+        self.train_masks_tensor = np.concatenate(self.list_mask_train, axis = 0)
 
-        self.valid_imgs_tensor = np.concatenate(train_imgs_tensor, axis = 0)
-        self.valid_masks_tensor = np.concatenate(train_masks_tensor, axis = 0)
+        self.valid_imgs_tensor = np.concatenate(self.list_im_valid, axis = 0)
+        self.valid_masks_tensor = np.concatenate(self.list_mask_valid, axis = 0)
         
-        self.test_imgs_tensor = np.concatenate(list_im_test, axis = 0)
-        self.test_masks_tensor = np.concatenate(list_mask_test, axis = 0)
+        self.test_imgs_tensor = np.concatenate(self.list_im_test, axis = 0)
+        self.test_masks_tensor = np.concatenate(self.list_mask_test, axis = 0)
         
 
     def reorient(self, image):
@@ -166,23 +169,24 @@ class Segmentation():
         image_resample = tf.resample(image, size=self.param.im_size) # TODO: CHANGE SYNTAX HERE
         return image_resample
     
-   def standardization(self, image):
-       mean = np.mean(image)
-       std = np.std(image)  
-       image -= mean 
-       image /= std
-       
-       return image
+    def standardization(self, image):
+        mean = np.mean(image)
+        std = np.std(image)
+        image -= mean
+        image /= std
+
+        return image
     
     # define loss functions
-    def dice_coef(self, y_true, y_pred):
+    def dice_coef(self, y_true, y_pred, smooth=0.1):
         y_true_f = K.flatten(y_true)
         y_pred_f = K.flatten(y_pred)
         intersection = K.sum(y_true_f * y_pred_f)
-        return (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+        dc = (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+        return dc
 
     def dice_coef_loss(self, y_true, y_pred):
-        return - dice_coef(y_true, y_pred)
+        return - self.dice_coef(y_true, y_pred)
     
     ## based on u-net paper
     def get_unet(self):
@@ -231,7 +235,7 @@ class Segmentation():
     
         model = Model(inputs=[inputs], outputs=[conv10])
     
-        model.compile(optimizer=Adam(lr=1e-5), loss=dice_coef_loss, metrics=[dice_coef])
+        model.compile(optimizer=Adam(lr=1e-5), loss=self.dice_coef_loss, metrics=[self.dice_coef])
     
         return model
     
@@ -243,7 +247,7 @@ class Segmentation():
         print('-'*30)
         print('Creating and compiling model...')
         print('-'*30)
-        model = get_unet()
+        model = self.get_unet()
         ## save the weights of the model on each epoch in order to run test after aborting
         model_name = time.strftime("%y%m%d%H%M%S")+'_CNN_model_'+tissue+'_seg_'+training_type+'_'+str(epochs)+'.h5'
         model_save_name = save_weights_path+model_name
@@ -262,6 +266,10 @@ def main():
     print "here"
     seg = Segmentation(param=param)
     seg.preprocessing()
+    ##
+    #line128: standardization function ?
+    #line169 change tf.resample
+    #tran and predict --> lot of functions to import 
 
 
 
