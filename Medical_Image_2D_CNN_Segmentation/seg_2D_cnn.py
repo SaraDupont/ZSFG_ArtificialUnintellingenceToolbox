@@ -31,7 +31,7 @@ def get_parser():
                         help="Name of the contrast folder you're doing the segmentation on. For ex \"T2\" or \"T2_ax\".",
                         type=str,
                         dest="contrast",
-                        default="T2")
+                        default="")
     parser.add_argument("-im",
                         help="String to look for in the images name.",
                         type=str,
@@ -95,12 +95,12 @@ class Segmentation():
             found_im = False
             found_mask = False
             for f in os.listdir(path_contrast):
-                if self.param.im in f and not found_im:
-                    self.list_fname_im.append(f)
-                    found_im = True
-                elif self.param.mask in f and not found_mask:
+                if self.param.mask in f and not found_mask:
                     self.list_fname_mask.append(f)
                     found_mask = True
+                elif self.param.im in f and not found_im:
+                    self.list_fname_im.append(f)
+                    found_im = True
             if found_im and found_mask:
                 self.list_subj.append(path_contrast)
         #
