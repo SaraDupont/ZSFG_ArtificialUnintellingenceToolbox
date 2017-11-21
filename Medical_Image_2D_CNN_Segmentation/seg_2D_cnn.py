@@ -242,13 +242,13 @@ class Segmentation():
         print('-'*30)
         print('Loading and preprocessing train data...')
         print('-'*30)
-        Segmentation.preprocessing()
+        self.preprocessing()
         print('-'*30)
         print('Creating and compiling model...')
         print('-'*30)
         model = self.get_unet()
         ## save the weights of the model on each epoch in order to run test after aborting
-        model_name = time.strftime("%y%m%d%H%M%S")+'_CNN_model_'+tissue+'_seg_'+training_type+'_'+str(epochs)+'.h5'
+        model_name = time.strftime("%y%m%d%H%M%S")+'_CNN_model_'+tissue+'_seg_'+training_type+'_'+str(self.epochs)+'.h5'
         model_save_name = save_weights_path+model_name
         model_checkpoint = ModelCheckpoint(model_save_name, monitor='loss', save_best_only=False)
         print('-'*30)
