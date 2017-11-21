@@ -47,6 +47,11 @@ def get_parser():
                         type=restricted_float,
                         dest="split",
                         default=0.8)
+    parser.add_argument("-valid-split",
+                        help="Split ratio between validation and actual train sets within the training set. Values should be between 0 and 1. Example: -split 0.3 would use 30 percent of the training set for validation (within the model training) and 70 percent for actual training.",
+                        type=restricted_float,
+                        dest="valid_split",
+                        default=0.2)
     parser.add_argument("-imsize",
                         help="Size of the image used in the CNN.",
                         type=int,
@@ -62,19 +67,25 @@ class Segmentation():
         self.list_fname_im = [] # list of images file names
         self.list_fname_mask = [] # list of masks file names
         self.list_orientation = [] # list of original orientation of images = to be able to put back the results into the original image orientation at the end of the segmentaiton
-        self.list_im = [] # list of nib images
-        self.list_mask = []  # list of nib masks
+        self.list_im = [] # list of original images data
+        self.list_mask = []  # list of original masks data
+        self.list_headers= [] # list of headers
+        #
         self.list_subj_train = [] # list of subjects used to train model
+        self.list_subj_valid = [] # list of subjects used to validate model within training
         self.list_subj_test = [] # list of subjects used to test model
-        self.list_im_train = [] # list of preprocessed images as ndarrays to train model on
-        self.list_im_test = []  # list of preprocessed images as ndarrays to test model on
-        self.list_mask_train= []  # list of preprocessed masks as ndarrays to train model on
-        self.list_mask_test = []  # list of preprocessed masks as ndarrays to test model on
-        self.list_headers = [] 
-        self.smooth = 1. 
-        self.K.set_image_data_format('channels_last')  # defined as b/w images throughout
+        #
+        self.train_imgs_tensor = [] # list of preprocessed images as ndarrays to train model on
+        self.train_masks_tensor = []  # list of preprocessed masks as ndarrays to test model on
+        self.valid_imgs_tensor = [] # list of preprocessed images as ndarrays to validate model on
+        self.valid_masks_tensor = [] # list of preprocessed masks as ndarrays to validate model on
+        self.test_imgs_tensor = [] # list of preprocessed images as ndarrays to test model on
+        self.test_masks_tensor = [] # list of preprocessed masks as ndarrays to test model on
+        #
+        self.smooth_dc = 1.
+
+        K.set_image_data_format('channels_last')  # defined as b/w images throughout
         self.epochs = 5000
-        self.valid_split = 0.2
 
         
     def preprocessing(self):
@@ -110,9 +121,8 @@ class Segmentation():
             self.list_headers.append(nib_im_temp.header)
             #
             # change orientation to make sure axial slices are in the correct dimension (= axial in the third dimension)
-            im_ori, im_reorient = self.reorient(self.list_im[i])
-            mask_ori, mask_reorient = self.reorient(self.list_mask[i])
-            
+            im_ori, im_reorient = self.reorient(self.list_im[i], self.list_headers[i])
+            mask_ori, mask_reorient = self.reorient(self.list_mask[i], nib_mask_temp.header)
             assert im_ori == mask_ori, "ERROR: image and mask don't have the same orientation"
             self.list_orientation.append(im_ori)
             #
@@ -120,53 +130,42 @@ class Segmentation():
             im_resample = self.resample(im_reorient)
             mask_resample = self.resample(mask_reorient)
             #
-            # TODO: IF OTHER PREPROCESSING STEPS ON ALL IMAGES ARE NEEDED, ADD HERE
+            #standardize the image intensities
+            im_stand = self.standardization(im_resample)
             #
             # add preprocessed images and masks to list
-            ###########################################################
-            ## TODO: What is standardization function ?
-            list_im_preprocessed.append(standardization(im_resample))
+            list_im_preprocessed.append(im_stand)
             list_mask_preprocessed.append(mask_resample)
         #
         # select subjects used for training and testing
         self.list_subj_train, self.list_subj_test, list_im_train, list_im_test, list_mask_train, list_mask_test = train_test_split(self.list_subj, list_im_preprocessed, list_mask_preprocessed, test_size=1-self.param.split, train_size=self.param.split)
         # select subjects used for training and validation
-        self.list_subj_train, self.list_subj_valid, list_im_train, list_im_validation, list_mask_train, list_mask_validation = train_test_split(self.list_subj_train, list_im_train, list_mask_train, test_size=self.valid_split, train_size=1-self.valid_split)
+        self.list_subj_train, self.list_subj_valid, list_im_train, list_im_valid, list_mask_train, list_mask_valid = train_test_split(self.list_subj_train, list_im_train, list_mask_train, test_size=self.param.valid_split, train_size=1-self.param.valid_split)
+        
+        self.train_imgs_tensor = np.concatenate(list_im_train, axis = 0)
+        self.train_masks_tensor = np.concatenate(list_mask_train, axis = 0)
 
-        self.list_im_train = [im.get_data() for im in list_im_train]
-        self.list_im_valid = [im.get_data() for im in list_im_validation]
-        self.list_im_test = [im.get_data() for im in list_im_test]
+        self.valid_imgs_tensor = np.concatenate(list_im_valid, axis = 0)
+        self.valid_masks_tensor = np.concatenate(list_mask_valid, axis = 0)
         
-        self.list_mask_train = [mask.get_data() for mask in list_mask_train]
-        self.list_mask_valid = [mask.get_data() for mask in list_mask_validation]
-        self.list_mask_test = [mask.get_data() for mask in list_mask_test]
-        
-        self.train_imgs_tensor = np.concatenate(self.list_im_train, axis = 0)
-        self.train_masks_tensor = np.concatenate(self.list_mask_train, axis = 0)
+        self.test_imgs_tensor = np.concatenate(list_im_test, axis = 0)
+        self.test_masks_tensor = np.concatenate(list_mask_test, axis = 0)
 
-        self.valid_imgs_tensor = np.concatenate(self.list_im_valid, axis = 0)
-        self.valid_masks_tensor = np.concatenate(self.list_mask_valid, axis = 0)
-        
-        self.test_imgs_tensor = np.concatenate(self.list_im_test, axis = 0)
-        self.test_masks_tensor = np.concatenate(self.list_mask_test, axis = 0)
-        
-
-    def reorient(self, image):
+    def reorient(self, image, hdr):
         # change the orientation of an image
-        image_or = np.swapaxes(image,0,2)
-        image_or = image_or[..., np.newaxis]
-        image_or = image_or.astype('float32')
-        # TODO: CHANGE IMAGE ORIENTATION:
-        # TODO --> GET CURRENT ORIENTATION AND STORE IT
-        # TODO --> CHANGE ORDER OF AXIS, MAYBE HAVE AS A PARAMETER WHAT IS THE ORIENTATION OF SLICES WE WANT TO SEGMENT ?? (I.E. AXIAL, CORONAL OR SAGITAL)
-        ori = image_or.shape #... # get image orientation of original
-        image_reorient = image_or ## get orientation of reoriented image
+        ori = tuple(nib.orientations.io_orientation(hdr.get_best_affine())[:,0]) # 0=R-L, 1=P-A, 2=I-S
+        if ori.index(2) != 0:
+            image_reorient = np.swapaxes(image, 0, ori.index(2))
+            image_reorient = image_reorient[..., np.newaxis]
+        else:
+            image_reorient = image
+        image_reorient = image_reorient.astype('float32')
         #
         return ori, image_reorient
 
     def resample(self, image):
         # resample an image to a square of size param.im_size
-        image_resample = tf.resample(image, size=self.param.im_size) # TODO: CHANGE SYNTAX HERE
+        image_resample = tf.image.resize_images(image, size=[self.param.im_size, self.param.im_size])
         return image_resample
     
     def standardization(self, image):
@@ -178,11 +177,11 @@ class Segmentation():
         return image
     
     # define loss functions
-    def dice_coef(self, y_true, y_pred, smooth=0.1):
+    def dice_coef(self, y_true, y_pred):
         y_true_f = K.flatten(y_true)
         y_pred_f = K.flatten(y_pred)
         intersection = K.sum(y_true_f * y_pred_f)
-        dc = (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+        dc = (2. * intersection + self.smooth_dc) / (K.sum(y_true_f) + K.sum(y_pred_f) + self.smooth_dc)
         return dc
 
     def dice_coef_loss(self, y_true, y_pred):
@@ -267,9 +266,10 @@ def main():
     seg = Segmentation(param=param)
     seg.preprocessing()
     ##
+    #line75 ?
     #line128: standardization function ?
     #line169 change tf.resample
-    #tran and predict --> lot of functions to import 
+    #tran and predict --> lot of functions to import
 
 
 
