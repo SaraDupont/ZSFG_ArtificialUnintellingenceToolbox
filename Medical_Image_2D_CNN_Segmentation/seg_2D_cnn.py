@@ -89,6 +89,10 @@ class Segmentation():
 
         
     def preprocessing(self):
+        #TODO: add progress bar for processing through subjects
+        print('-'*30)
+        print('Loading and preprocessing data...')
+        print('-'*30)
         # get data
         for subj in os.listdir(self.param.path):
             path_contrast = os.path.join(self.param.path, subj, self.param.contrast)
@@ -175,74 +179,8 @@ class Segmentation():
         image /= std
 
         return image
-    
-    # define loss functions
-    def dice_coef(self, y_true, y_pred):
-        y_true_f = K.flatten(y_true)
-        y_pred_f = K.flatten(y_pred)
-        intersection = K.sum(y_true_f * y_pred_f)
-        dc = (2. * intersection + self.smooth_dc) / (K.sum(y_true_f) + K.sum(y_pred_f) + self.smooth_dc)
-        return dc
-
-    def dice_coef_loss(self, y_true, y_pred):
-        return - self.dice_coef(y_true, y_pred)
-    
-    ## based on u-net paper
-    def get_unet(self):
-        inputs = Input((self.param.im_size, self.param.im_size, 1))
-        conv1 = Conv2D(8, (3, 3), activation='relu', padding='same')(inputs)
-        conv1 = Dropout(0.2)(conv1)
-        conv1 = Conv2D(8, (3, 3), activation='relu', padding='same')(conv1)
-        pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
-    
-        conv2 = Conv2D(16, (3, 3), activation='relu', padding='same')(pool1)
-        conv2 = Dropout(0.2)(conv2)
-        conv2 = Conv2D(16, (3, 3), activation='relu', padding='same')(conv2)
-        pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
-    
-        conv3 = Conv2D(32, (3, 3), activation='relu', padding='same')(pool2)
-        conv3 = Dropout(0.2)(conv3)
-        conv3 = Conv2D(32, (3, 3), activation='relu', padding='same')(conv3)
-        pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
-    
-        conv4 = Conv2D(64, (3, 3), activation='relu', padding='same')(pool3)
-        conv4 = Dropout(0.2)(conv4)
-        conv4 = Conv2D(64, (3, 3), activation='relu', padding='same')(conv4)
-        pool4 = MaxPooling2D(pool_size=(2, 2))(conv4)
-    
-        conv5 = Conv2D(128, (3, 3), activation='relu', padding='same')(pool4)
-        conv5 = Dropout(0.2)(conv5)
-        conv5 = Conv2D(128, (3, 3), activation='relu', padding='same')(conv5)
-    
-        up6 = concatenate([UpSampling2D(size=(2, 2))(conv5), conv4], axis=3)
-        conv6 = Conv2D(64, (3, 3), activation='relu', padding='same')(up6)
-        conv6 = Conv2D(64, (3, 3), activation='relu', padding='same')(conv6)
-    
-        up7 = concatenate([UpSampling2D(size=(2, 2))(conv6), conv3], axis=3)
-        conv7 = Conv2D(32, (3, 3), activation='relu', padding='same')(up7)
-        conv7 = Conv2D(32, (3, 3), activation='relu', padding='same')(conv7)
-    
-        up8 = concatenate([UpSampling2D(size=(2, 2))(conv7), conv2], axis=3)
-        conv8 = Conv2D(16, (3, 3), activation='relu', padding='same')(up8)
-        conv8 = Conv2D(16, (3, 3), activation='relu', padding='same')(conv8)
-    
-        up9 = concatenate([UpSampling2D(size=(2, 2))(conv8), conv1], axis=3)
-        conv9 = Conv2D(8, (3, 3), activation='relu', padding='same')(up9)
-        conv9 = Conv2D(8, (3, 3), activation='relu', padding='same')(conv9)
-    
-        conv10 = Conv2D(1, (1, 1), activation='sigmoid')(conv9)
-    
-        model = Model(inputs=[inputs], outputs=[conv10])
-    
-        model.compile(optimizer=Adam(lr=1e-5), loss=self.dice_coef_loss, metrics=[self.dice_coef])
-    
-        return model
-    
-    def train_and_predict(self):
-        print('-'*30)
-        print('Loading and preprocessing train data...')
-        print('-'*30)
-        self.preprocessing()
+  
+    def train(self):
         print('-'*30)
         print('Creating and compiling model...')
         print('-'*30)
@@ -257,7 +195,120 @@ class Segmentation():
         train_generator = image_augmentation(imgs_train_p_valid_reduced, imgs_mask_train_p_valid_reduced)
         hist = model.fit_generator(train_generator,steps_per_epoch=imgs_train_p.shape[0] / 32,epochs=epochs,  callbacks=[model_checkpoint], validation_data = validation_data)
 
+    ## based on u-net paper
+    def get_unet(self):
+        # TODO: make number of layers adjustable by writing a function for down_layer and up_layer and iterating while i<num_layer
+        inputs = Input((self.param.im_size, self.param.im_size, 1))
+        num_layer = 4
+        
+        conv1 = Conv2D(self.param.im_size/(2**num_layer), (3, 3), activation='relu', padding='same')(inputs) #8
+        conv1 = Dropout(0.2)(conv1)
+        conv1 = Conv2D(self.param.im_size/(2**num_layer), (3, 3), activation='relu', padding='same')(conv1)
+        pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
+    
+        conv2 = Conv2D(self.param.im_size/(2**num_layer-1), (3, 3), activation='relu', padding='same')(pool1) #16
+        conv2 = Dropout(0.2)(conv2)
+        conv2 = Conv2D(self.param.im_size/(2**num_layer-1), (3, 3), activation='relu', padding='same')(conv2)
+        pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
+    
+        conv3 = Conv2D(self.param.im_size/(2**num_layer-2), (3, 3), activation='relu', padding='same')(pool2)#32
+        conv3 = Dropout(0.2)(conv3)
+        conv3 = Conv2D(self.param.im_size/(2**num_layer-2), (3, 3), activation='relu', padding='same')(conv3)
+        pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
+    
+        conv4 = Conv2D(self.param.im_size/(2**num_layer-3), (3, 3), activation='relu', padding='same')(pool3) #64
+        conv4 = Dropout(0.2)(conv4)
+        conv4 = Conv2D(self.param.im_size/(2**num_layer-3), (3, 3), activation='relu', padding='same')(conv4)
+        pool4 = MaxPooling2D(pool_size=(2, 2))(conv4)
+    
+        conv5 = Conv2D(self.param.im_size, (3, 3), activation='relu', padding='same')(pool4) #128
+        conv5 = Dropout(0.2)(conv5)
+        conv5 = Conv2D(self.param.im_size, (3, 3), activation='relu', padding='same')(conv5)
+    
+        up6 = concatenate([UpSampling2D(size=(2, 2))(conv5), conv4], axis=3)
+        conv6 = Conv2D(self.param.im_size/(2**num_layer-3), (3, 3), activation='relu', padding='same')(up6)
+        conv6 = Conv2D(self.param.im_size/(2**num_layer-3), (3, 3), activation='relu', padding='same')(conv6)
+    
+        up7 = concatenate([UpSampling2D(size=(2, 2))(conv6), conv3], axis=3)
+        conv7 = Conv2D(self.param.im_size/(2**num_layer-2), (3, 3), activation='relu', padding='same')(up7)
+        conv7 = Conv2D(self.param.im_size/(2**num_layer-2), (3, 3), activation='relu', padding='same')(conv7)
+    
+        up8 = concatenate([UpSampling2D(size=(2, 2))(conv7), conv2], axis=3)
+        conv8 = Conv2D(self.param.im_size/(2**num_layer-1), (3, 3), activation='relu', padding='same')(up8)
+        conv8 = Conv2D(self.param.im_size/(2**num_layer-1), (3, 3), activation='relu', padding='same')(conv8)
+    
+        up9 = concatenate([UpSampling2D(size=(2, 2))(conv8), conv1], axis=3)
+        conv9 = Conv2D(self.param.im_size/(2**num_layer), (3, 3), activation='relu', padding='same')(up9)
+        conv9 = Conv2D(self.param.im_size/(2**num_layer), (3, 3), activation='relu', padding='same')(conv9)
+    
+        conv10 = Conv2D(1, (1, 1), activation='sigmoid')(conv9)
+    
+        model = Model(inputs=[inputs], outputs=[conv10])
+    
+        model.compile(optimizer=Adam(lr=1e-5), loss=self.dice_coef_loss, metrics=[self.dice_coef])
+    
+        return model
+  
+     # define loss functions
+    def dice_coef(self, y_true, y_pred):
+        y_true_f = K.flatten(y_true)
+        y_pred_f = K.flatten(y_pred)
+        intersection = K.sum(y_true_f * y_pred_f)
+        dc = (2. * intersection + self.smooth_dc) / (K.sum(y_true_f) + K.sum(y_pred_f) + self.smooth_dc)
+        return dc
 
+    def dice_coef_loss(self, y_true, y_pred):
+        return - self.dice_coef(y_true, y_pred)
+   
+    def image_augmentation(self, imgs, masks): 
+        #  create two instances with the same arguments
+        # create dictionary with the input augmentation values
+        data_gen_args = dict(featurewise_center=False,
+                             featurewise_std_normalization=False,
+                             #zca_whitening=True,
+                             #zca_epsilon=1e-6,
+                             rotation_range=20,
+                             width_shift_range=0.1,
+                             height_shift_range=0.1,
+                             shear_range=0.2,
+                             zoom_range=0.2, 
+                             horizontal_flip=True,
+                             vertical_flip = True)
+        
+        ## use this method with both images and masks
+        image_datagen = ImageDataGenerator(**data_gen_args)
+        mask_datagen = ImageDataGenerator(**data_gen_args)
+        
+        # Provide the same seed and keyword arguments to the fit and flow methods
+        seed = 1
+        ## fit the augmentation model to the images and masks with the same seed
+        image_datagen.fit(imgs, augment=True, seed=seed)
+        mask_datagen.fit(masks, augment=True, seed=seed)
+        
+        ## set the parameters for the data to come from (images)
+        image_generator = image_datagen.flow(
+            imgs,
+            batch_size=32,
+            shuffle=True,
+            seed=seed)
+        ## set the parameters for the data to come from (masks)
+        mask_generator = mask_datagen.flow(
+            masks,
+            batch_size=32,
+            shuffle=True,
+            seed=seed)
+        
+        # combine generators into one which yields image and masks
+        #train_generator = zip(image_generator, mask_generator)
+        ## return the train generator for input in the CNN 
+        #return image_generator, mask_generator
+        
+        while True:
+            yield(image_generator.next(), mask_generator.next())
+     
+        
+        def predict(self):
+            pass
 
 def main():
     parser = get_parser()
@@ -265,10 +316,11 @@ def main():
     print "here"
     seg = Segmentation(param=param)
     seg.preprocessing()
+    if param.split != 0.0:
+        seg.train()
+    if param.split != 1.0:
+        seg.predict()
     ##
-    #line75 ?
-    #line128: standardization function ?
-    #line169 change tf.resample
     #tran and predict --> lot of functions to import
 
 
