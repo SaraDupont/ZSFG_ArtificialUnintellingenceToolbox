@@ -1,4 +1,4 @@
-import os
+import os, glob
 import argparse
 from utils import *
 import nibabel as nib
@@ -19,6 +19,7 @@ from keras.callbacks import History
 import pandas as pd 
 from keras.utils import plot_model
 from scipy import stats
+import matplotlib.pyplot as plt
 
 
 def get_parser():
@@ -62,6 +63,11 @@ def get_parser():
                         type=int,
                         dest="im_size",
                         default=128)
+    parser.add_argument("-epochs",
+                        help="Number of epochs to run the network.",
+                        type=int,
+                        dest="epochs",
+                        default=5000)
     return parser
 
 
@@ -92,7 +98,6 @@ class Segmentation():
         self.model_train_hist = None
 
         K.set_image_data_format('channels_last')  # defined as b/w images throughout
-        self.epochs = 5000
 
         
     def preprocessing(self):
@@ -161,6 +166,11 @@ class Segmentation():
         
         self.test_imgs_tensor = np.concatenate(list_im_test, axis = 0)
         self.test_masks_tensor = np.concatenate(list_mask_test, axis = 0)
+        
+        self.fname_model = time.strftime("%y%m%d%H%M%S")+'_CNN_model_seg_'+str(self.param.epochs)+'epochs_'+str(self.param.num_layer)+'_layers'
+        np.save(self.fname_model+'_test_imgs.npy', self.test_imgs_tensor)
+        np.save(self.fname_model+'_test_masks.npy', self.test_masks_tensor)
+
 
     def reorient(self, image, hdr):
         # change the orientation of an image
@@ -171,12 +181,22 @@ class Segmentation():
         else:
             image_reorient = image
         image_reorient = image_reorient.astype('float32')
+#        image_reorient = image_reorient.astype('int32')
         #
         return ori, image_reorient
 
     def resample(self, image):
-        # resample an image to a square of size param.im_size
-        image_resample = tf.image.resize_images(image, size=[self.param.im_size, self.param.im_size])
+        # run a graph as default to avoid information being added to the same graph over iterations and resulting in an overload
+        with tf.Graph().as_default():
+            # resample an image to a square of size param.im_size
+            image_resample = tf.image.resize_images(image, size=[self.param.im_size, self.param.im_size])
+            ## convert from type tensor to numpy array
+            image_resample = tf.Session().run(image_resample)
+        return image_resample 
+    
+    def resample_sk(self, image):
+        from skimage.transform import resize
+        image_resample = np.asarray([resize(im, (self.param.im_size, self.param.im_size)) for im in image])
         return image_resample
     
     def standardization(self, image):
@@ -193,67 +213,19 @@ class Segmentation():
         print('-'*30)
         model = self.get_unet()
         ## save the weights of the model on each epoch in order to run test after aborting
-        model_name = time.strftime("%y%m%d%H%M%S")+'_CNN_model_seg_'+str(self.epochs)+'.h5'
-        model_checkpoint = ModelCheckpoint(model_name, monitor='loss', save_best_only=False)
+        model_checkpoint = ModelCheckpoint(self.fname_model +'.h5', monitor='loss', save_best_only=False)
         print('-'*30)
         print('Fitting model...')
         print('-'*30)
         train_generator = self.image_augmentation()
-        self.model_train_hist = model.fit_generator(train_generator, steps_per_epoch=self.train_imgs_tensor.shape[0] / 32, epochs=self.epochs,  callbacks=[model_checkpoint], validation_data = (self.valid_imgs_tensor, self.valid_masks_tensor))
+        self.model_train_hist = model.fit_generator(train_generator, steps_per_epoch=self.train_imgs_tensor.shape[0] / 32, epochs=self.param.epochs,  callbacks=[model_checkpoint], validation_data = (self.valid_imgs_tensor, self.valid_masks_tensor))
+    
+        df_hist = pd.DataFrame(self.model_train_hist.history)
+        df_hist.to_csv(self.fname_model+".csv")
+#        model.fit(self.train_imgs_tensor, self.train_masks_tensor, batch_size=32, nb_epoch=self.param.epochs, verbose=1, shuffle=True,
+#              validation_split=0.0,
+#              callbacks=[model_checkpoint])
 
-    ## based on u-net paper
-    #    def get_unet_old(self):
-    #        # TODO: make number of layers adjustable by writing a function for down_layer and up_layer and iterating while i<num_layer
-    #        inputs = Input((self.param.im_size, self.param.im_size, 1))
-    #        num_layer = 4
-    #        
-    #        conv1 = Conv2D(self.param.im_size/(2**num_layer), (3, 3), activation='relu', padding='same')(inputs) #8
-    #        conv1 = Dropout(0.2)(conv1)
-    #        conv1 = Conv2D(self.param.im_size/(2**num_layer), (3, 3), activation='relu', padding='same')(conv1)
-    #        pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
-    #    
-    #        conv2 = Conv2D(self.param.im_size/(2**num_layer-1), (3, 3), activation='relu', padding='same')(pool1) #16
-    #        conv2 = Dropout(0.2)(conv2)
-    #        conv2 = Conv2D(self.param.im_size/(2**num_layer-1), (3, 3), activation='relu', padding='same')(conv2)
-    #        pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
-    #    
-    #        conv3 = Conv2D(self.param.im_size/(2**num_layer-2), (3, 3), activation='relu', padding='same')(pool2)#32
-    #        conv3 = Dropout(0.2)(conv3)
-    #        conv3 = Conv2D(self.param.im_size/(2**num_layer-2), (3, 3), activation='relu', padding='same')(conv3)
-    #        pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
-    #    
-    #        conv4 = Conv2D(self.param.im_size/(2**num_layer-3), (3, 3), activation='relu', padding='same')(pool3) #64
-    #        conv4 = Dropout(0.2)(conv4)
-    #        conv4 = Conv2D(self.param.im_size/(2**num_layer-3), (3, 3), activation='relu', padding='same')(conv4)
-    #        pool4 = MaxPooling2D(pool_size=(2, 2))(conv4)
-    #    
-    #        conv5 = Conv2D(self.param.im_size, (3, 3), activation='relu', padding='same')(pool4) #128
-    #        conv5 = Dropout(0.2)(conv5)
-    #        conv5 = Conv2D(self.param.im_size, (3, 3), activation='relu', padding='same')(conv5)
-    #    
-    #        up6 = concatenate([UpSampling2D(size=(2, 2))(conv5), conv4], axis=3)
-    #        conv6 = Conv2D(self.param.im_size/(2**num_layer-3), (3, 3), activation='relu', padding='same')(up6)
-    #        conv6 = Conv2D(self.param.im_size/(2**num_layer-3), (3, 3), activation='relu', padding='same')(conv6)
-    #    
-    #        up7 = concatenate([UpSampling2D(size=(2, 2))(conv6), conv3], axis=3)
-    #        conv7 = Conv2D(self.param.im_size/(2**num_layer-2), (3, 3), activation='relu', padding='same')(up7)
-    #        conv7 = Conv2D(self.param.im_size/(2**num_layer-2), (3, 3), activation='relu', padding='same')(conv7)
-    #    
-    #        up8 = concatenate([UpSampling2D(size=(2, 2))(conv7), conv2], axis=3)
-    #        conv8 = Conv2D(self.param.im_size/(2**num_layer-1), (3, 3), activation='relu', padding='same')(up8)
-    #        conv8 = Conv2D(self.param.im_size/(2**num_layer-1), (3, 3), activation='relu', padding='same')(conv8)
-    #    
-    #        up9 = concatenate([UpSampling2D(size=(2, 2))(conv8), conv1], axis=3)
-    #        conv9 = Conv2D(self.param.im_size/(2**num_layer), (3, 3), activation='relu', padding='same')(up9)
-    #        conv9 = Conv2D(self.param.im_size/(2**num_layer), (3, 3), activation='relu', padding='same')(conv9)
-    #    
-    #        conv10 = Conv2D(1, (1, 1), activation='sigmoid')(conv9)
-    #    
-    #        model = Model(inputs=[inputs], outputs=[conv10])
-    #    
-    #        model.compile(optimizer=Adam(lr=1e-5), loss=self.dice_coef_loss, metrics=[self.dice_coef])
-    #    
-    #        return model
 
     ## based on u-net paper
     def get_unet(self):
@@ -270,7 +242,7 @@ class Segmentation():
         conv_tmp = Conv2D(self.param.im_size, (3, 3), activation='relu', padding='same')(conv)
     
         for i in range(self.param.num_layer):
-            conv_tmp = self.up_layer(prev_conv=conv_tmp, down_conv=list_down_conv[-(i+1)])
+            conv_tmp = self.up_layer(prev_conv=conv_tmp, down_conv=list_down_conv[-(i+1)], curr_layer=i)
               
         conv_top = Conv2D(1, (1, 1), activation='sigmoid')(conv_tmp)
     
@@ -280,16 +252,16 @@ class Segmentation():
         return model
 
     def down_layer(self, layer_input, curr_layer):
-        conv = Conv2D(self.param.im_size/(2**self.param.num_layer-curr_layer), (3, 3), activation='relu', padding='same')(layer_input) #8
+        conv = Conv2D(self.param.im_size/(2**(self.param.num_layer-curr_layer)), (3, 3), activation='relu', padding='same')(layer_input) #8
         conv = Dropout(0.2)(conv)
-        conv = Conv2D(self.param.im_size/(2**self.param.num_layer-curr_layer), (3, 3), activation='relu', padding='same')(conv)
+        conv = Conv2D(self.param.im_size/(2**(self.param.num_layer-curr_layer)), (3, 3), activation='relu', padding='same')(conv)
         pool = MaxPooling2D(pool_size=(2, 2))(conv)
         return pool, conv
 
     def up_layer(self, prev_conv, down_conv, curr_layer):
         up = concatenate([UpSampling2D(size=(2, 2))(prev_conv), down_conv], axis=3)
-        conv = Conv2D(self.param.im_size/(2**self.param.num_layer-(self.param.num_layer-(curr_layer+1))), (3, 3), activation='relu', padding='same')(up)
-        conv = Conv2D(self.param.im_size/(2**self.param.num_layer-(self.param.num_layer-(curr_layer+1))), (3, 3), activation='relu', padding='same')(conv)
+        conv = Conv2D(self.param.im_size/(2**(self.param.num_layer-(self.param.num_layer-(curr_layer+1)))), (3, 3), activation='relu', padding='same')(up)
+        conv = Conv2D(self.param.im_size/(2**(self.param.num_layer-(self.param.num_layer-(curr_layer+1)))), (3, 3), activation='relu', padding='same')(conv)
         return conv
 
      # define loss functions
@@ -327,6 +299,7 @@ class Segmentation():
         ## fit the augmentation model to the images and masks with the same seed
         image_datagen.fit(self.train_imgs_tensor, augment=True, seed=seed)
         mask_datagen.fit(self.train_masks_tensor, augment=True, seed=seed)
+
         
         ## set the parameters for the data to come from (images)
         image_generator = image_datagen.flow(
@@ -345,8 +318,29 @@ class Segmentation():
             yield(image_generator.next(), mask_generator.next())
      
         
-        def predict(self):
-            pass
+    def predict_seg(self):
+        model = self.load_model_seg()
+        result = model.predict(self.test_imgs_tensor, verbose=1)
+        
+        print "done"
+        plt.imshow(result[10,:,:,0], cmap='gray')
+        plt.show()
+        print 'showing'
+        
+        
+
+    def load_model_seg(self):
+        list_files = glob.glob('*'+str(self.param.epochs)+'.h5')
+        model_file = max(list_files, key=os.path.getctime)
+        
+        model = load_model(model_file, custom_objects={'dice_coef_loss': self.dice_coef_loss, 'dice_coef': self.dice_coef})
+        
+        fname_model = model_file.split('.')[-2]
+        self.test_imgs_tensor = np.load(fname_model+'_test_imgs.npy')
+        self.test_masks_tensor = np.load(fname_model+'_test_masks.npy')
+        
+        return model
+        
 
 def main():
     parser = get_parser()
@@ -356,7 +350,7 @@ def main():
     if param.split != 0.0:
         seg.train()
     if param.split != 1.0:
-        seg.predict()
+        seg.predict_seg()
     ##
     #tran and predict --> lot of functions to import
 
