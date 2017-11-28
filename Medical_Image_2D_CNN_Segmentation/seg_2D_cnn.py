@@ -206,11 +206,12 @@ class Segmentation():
         else:
             self.list_subj_valid, list_im_valid, list_mask_valid = [], [], []
 
-        self.train_imgs_tensor = np.concatenate(list_im_train, axis = 0)
-        self.train_masks_tensor = np.concatenate(list_mask_train, axis = 0)
-
-        self.valid_imgs_tensor = np.concatenate(list_im_valid, axis = 0)
-        self.valid_masks_tensor = np.concatenate(list_mask_valid, axis = 0)
+        if self.param.split != 0.0:
+            self.train_imgs_tensor = np.concatenate(list_im_train, axis = 0)
+            self.train_masks_tensor = np.concatenate(list_mask_train, axis = 0)
+            #
+            self.valid_imgs_tensor = np.concatenate(list_im_valid, axis = 0)
+            self.valid_masks_tensor = np.concatenate(list_mask_valid, axis = 0)
         #
         self.fname_model = time.strftime("%y%m%d%H%M%S")+'_CNN_model_seg_'+str(self.param.epochs)+'epochs_'+str(self.param.num_layer)+'_layers'
         np.save(self.fname_model+'_test_set.npy', self.list_subj_test)
@@ -234,12 +235,15 @@ class Segmentation():
         #
         f.close()
 
-    def reorient(self, image, hdr):
+    def reorient(self, image, hdr, put_back=False):
         # change the orientation of an image
         ori = tuple(nib.orientations.io_orientation(hdr.get_best_affine())[:,0]) # 0=R-L, 1=P-A, 2=I-S
         if ori.index(2) != 0:
-            image_reorient = np.swapaxes(image, 0, ori.index(2))
-            image_reorient = image_reorient[..., np.newaxis]
+            if not put_back: # preprocessing
+                image_reorient = np.swapaxes(image, 0, ori.index(2))
+                image_reorient = image_reorient[..., np.newaxis]
+            else: #postprocessing
+                image_reorient = np.swapaxes(image, ori.index(2), 0)
         else:
             image_reorient = image
         image_reorient = image_reorient.astype('float32')
@@ -388,7 +392,7 @@ class Segmentation():
         # print 'showing'
 
     def load_model_seg(self):
-        list_files = glob.glob('*'+str(self.param.epochs)+'.h5')
+        list_files = glob.glob('*'+str(self.param.epochs)+'*.h5')
         model_file = max(list_files, key=os.path.getctime)
         
         model = load_model(model_file, custom_objects={'dice_coef_loss': self.dice_coef_loss, 'dice_coef': self.dice_coef})
@@ -402,7 +406,35 @@ class Segmentation():
         return model
 
     def post_processing(self, data, subj):
-        pass
+        # reorient data to original orientation
+        ori, data_reorient = self.reorient(data, subj.hdr, put_back=True)
+        # resample to original dimension
+        data_resample = self.resample_mask_to_subj(data_reorient, subj)
+        # binarize output seg
+        thr = 0.5
+        data_resample[data_resample < thr] = 0
+        data_resample[data_resample >= thr] = 1
+
+        return data_resample
+
+    def resample_mask_to_subj(self, data, subj, interp=3):
+        from skimage.transform import resize
+        # get rid of the extra dimension
+        if len(data.shape) == 4 and data.shape[3]==1:
+            data = data.reshape(data.shape[:-1])
+        original_shape = subj.im_data.shape
+        new_shape_2d = (original_shape[subj.orientation.index(0)], original_shape[subj.orientation.index(1)])
+
+        data_resample = np.zeros(original_shape)
+        for i in range(original_shape[subj.orientation.index(2)]):
+            if subj.orientation.index(2) == 0:
+                data_resample[i,:,:] = resize(data[i,:,:], new_shape_2d, order=interp)
+            if subj.orientation.index(2) == 1:
+                data_resample[:,i,:] = resize(data[:,i,:], new_shape_2d, order=interp)
+            if subj.orientation.index(2) == 2:
+                data_resample[:,:,i] = resize(data[:,:,i], new_shape_2d, order=interp)
+
+        return data_resample
 
 def add_suffix(path, suffix):
     list_path = path.split('/')
