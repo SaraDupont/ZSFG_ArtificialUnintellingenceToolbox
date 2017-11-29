@@ -24,6 +24,8 @@ def preprocessing_spine(param):
     # get list of subjects
     list_subjects = get_data(param)
     #
+    list_fname_croping_mask = []
+    #
     for subj in list_subjects:
         # get centerline
         path_out = os.path.join(subj.path, 'centerline')
@@ -36,6 +38,7 @@ def preprocessing_spine(param):
         cmd_create_mask = 'sct_create_mask -i '+os.path.join(subj.path, subj.fname_im)+' -p centerline,'+fname_centerline_auto+' -size '+size_mask+' -f box'
         status, output = commands.getstatusoutput(cmd_create_mask)
         fname_mask_sc = os.path.join(subj.path, 'mask_', subj.fname_im)
+        list_fname_croping_mask.append(fname_mask_sc)
         #
         # crop image and SC seg (if exists)
         fname_im_out =  add_suffix(subj.fname_im, '_crop')
@@ -49,7 +52,7 @@ def preprocessing_spine(param):
             status, output = commands.getstatusoutput(cmd_crop_mask)
             subj.fname_mask = fname_mask_out
         #
-    return list_subjects
+    return list_subjects, list_fname_croping_mask
 
 
 if __name__ == '__main__':
