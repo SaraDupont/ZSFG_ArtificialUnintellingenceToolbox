@@ -23,15 +23,16 @@ import matplotlib.pyplot as plt
 
 
 def get_parser():
+    ### TODO: do a parent parser for the data argument that are gonna be used by other (application specific) parsers (for ex in each preprocessing)
     parser = argparse.ArgumentParser(description="Segmentation function based on 2D convolutional neural networks")
     parser.add_argument("-data",
                         help="Data to train and/or test the segmentation on",
                         type=str,
                         dest="path")
-    parser.add_argument("-c",
+    parser.add_argument("-cfolder",
                         help="Name of the contrast folder you're doing the segmentation on. For ex \"T2\" or \"T2_ax\".",
                         type=str,
-                        dest="contrast",
+                        dest="contrast_folder",
                         default="")
     parser.add_argument("-im",
                         help="String to look for in the images name.",
@@ -125,23 +126,15 @@ class Segmentation():
     def preprocessing(self):
         #TODO: add progress bar for processing through subjects
         print('-'*30)
-        print('Loading and preprocessing data...')
+        print('Loading data...')
         print('-'*30)
         # get data
-        for subj in os.listdir(self.param.path):
-            if os.path.isdir(os.path.join(self.param.path, subj)):
-                path_contrast = os.path.join(self.param.path, subj, self.param.contrast)
-                fname_im = ''
-                fname_mask = ''
-                for f in os.listdir(path_contrast):
-                    if self.param.mask in f and fname_mask == '':
-                        fname_mask = f
-                    elif self.param.im in f and fname_im == '':
-                        fname_im = f
-                if fname_im != '':
-                    self.list_subjects.append(Subject(path=path_contrast, fname_im=fname_im, fname_mask=fname_mask))
         #
+        self.list_subjects = get_data(self.param)
         #
+        print('-' * 30)
+        print('Preprocessing data...')
+        print('-' * 30)
         list_im_preprocessed = []
         list_mask_preprocessed = []
         for subj in self.list_subjects:
@@ -451,15 +444,25 @@ class Segmentation():
 
         return data_resample
 
-def add_suffix(path, suffix):
-    list_path = path.split('/')
-    fname = list_path[-1]
-    list_fname = fname.split('.')
-    list_fname[0]+= suffix
-    fname_suffix = '.'.join(list_fname)
-    list_path[-1] = fname_suffix
-    path_suffix = '/'.join(list_path)
-    return path_suffix
+
+
+def get_data(param):
+    list_subjects = []
+    for subj in os.listdir(param.path):
+        if os.path.isdir(os.path.join(param.path, subj)):
+            path_contrast = os.path.join(param.path, subj, param.contrast_folder)
+            fname_im = ''
+            fname_mask = ''
+            for f in os.listdir(path_contrast):
+                if param.mask in f and fname_mask == '':
+                    fname_mask = f
+                elif param.im in f and fname_im == '':
+                    fname_im = f
+            if fname_im != '':
+                list_subjects.append(Subject(path=path_contrast, fname_im=fname_im, fname_mask=fname_mask))
+    return list_subjects
+
+
 
 def dice_coeff_np(y_true, y_pred):
     intersection = np.sum(y_true*y_pred)
