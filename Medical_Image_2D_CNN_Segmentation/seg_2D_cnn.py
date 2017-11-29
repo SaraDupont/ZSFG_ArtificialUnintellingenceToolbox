@@ -21,17 +21,16 @@ from keras.utils import plot_model
 from scipy import stats
 import matplotlib.pyplot as plt
 
-
-def get_parser():
-    parser = argparse.ArgumentParser(description="Segmentation function based on 2D convolutional neural networks")
+def get_parser_data():
+    parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-data",
                         help="Data to train and/or test the segmentation on",
                         type=str,
                         dest="path")
-    parser.add_argument("-c",
+    parser.add_argument("-cfolder",
                         help="Name of the contrast folder you're doing the segmentation on. For ex \"T2\" or \"T2_ax\".",
                         type=str,
-                        dest="contrast",
+                        dest="contrast_folder",
                         default="")
     parser.add_argument("-im",
                         help="String to look for in the images name.",
@@ -43,6 +42,12 @@ def get_parser():
                         type=str,
                         dest="mask",
                         default="mask")
+    return parser
+
+def get_parser():
+    parser_data = get_parser_data()
+    #
+    parser = argparse.ArgumentParser(description="Segmentation function based on 2D convolutional neural networks", parents=[parser_data])
     parser.add_argument("-split",
                         help="Split ratio between train and test sets. Values should be between 0 and 1. Example: -split 0.4 would use 40 percent of the data for training and 60 percent for testing.",
                         type=restricted_float,
@@ -70,13 +75,37 @@ def get_parser():
                         default=5000)
     return parser
 
+class Subject():
+    def __init__(self, path='', fname_im='', fname_mask='', ori='', type_set=None, im_data=None, mask_data=None, hdr=None, im_data_preproc=None, im_mask_preproc=None):
+        self.path = path
+        self.fname_im = fname_im
+        self.fname_mask = fname_mask
+        #
+        self.type = type_set
+        #
+        self.im_data = im_data
+        self.mask_data = mask_data
+        self.hdr = None
+        self.orientation = ori
+        #
+        self.im_data_preprocessed = im_data_preproc
+        self.im_mask_preprocessed = im_mask_preproc
+    #
+    def __repr__(self):
+        to_print = '\nSubject:   '
+        to_print += '   path: '+self.path
+        to_print += '   fname image: ' + self.fname_im
+        to_print += '   fname mask: ' + self.fname_mask
+        to_print += '   orientation of im: ' + self.orientation
+        to_print += '   used for : ' + str(self.type)
+        return to_print
 
 class Segmentation():
     def __init__(self, param):
         self.param = param # parser parameters
-        self.list_subj = [] # list of paths to each subject
-        self.list_fname_im = [] # list of images file names
-        self.list_fname_mask = [] # list of masks file names
+
+        self.list_subjects = [] # list of subjects (objects of type Subject)
+
         self.list_orientation = [] # list of original orientation of images = to be able to put back the results into the original image orientation at the end of the segmentaiton
         self.list_im = [] # list of original images data
         self.list_mask = []  # list of original masks data
@@ -90,8 +119,6 @@ class Segmentation():
         self.train_masks_tensor = []  # list of preprocessed masks as ndarrays to test model on
         self.valid_imgs_tensor = [] # list of preprocessed images as ndarrays to validate model on
         self.valid_masks_tensor = [] # list of preprocessed masks as ndarrays to validate model on
-        self.test_imgs_tensor = [] # list of preprocessed images as ndarrays to test model on
-        self.test_masks_tensor = [] # list of preprocessed masks as ndarrays to test model on
         #
         self.smooth_dc = 1.
         #
@@ -103,85 +130,120 @@ class Segmentation():
     def preprocessing(self):
         #TODO: add progress bar for processing through subjects
         print('-'*30)
-        print('Loading and preprocessing data...')
+        print('Loading data...')
         print('-'*30)
         # get data
-        for subj in os.listdir(self.param.path):
-            path_contrast = os.path.join(self.param.path, subj, self.param.contrast)
-            found_im = False
-            found_mask = False
-            for f in os.listdir(path_contrast):
-                if self.param.mask in f and not found_mask:
-                    self.list_fname_mask.append(f)
-                    found_mask = True
-                elif self.param.im in f and not found_im:
-                    self.list_fname_im.append(f)
-                    found_im = True
-            if found_im and found_mask:
-                self.list_subj.append(path_contrast)
         #
-        # assert is used to check if a statement is true, if not, it raises an error and stops the program
-        assert len(self.list_fname_im) == len(self.list_fname_mask), "ERROR: not the same number of images and masks"
-        assert len(self.list_subj) == len(self.list_fname_im), "ERROR not the same number of images and subjects"
+        self.list_subjects = get_data(self.param)
         #
+        print('-' * 30)
+        print('Preprocessing data...')
+        print('-' * 30)
         list_im_preprocessed = []
         list_mask_preprocessed = []
-        for i, path_subj in enumerate(self.list_subj):
+        for subj in self.list_subjects:
             # load images
-            nib_im_temp = nib.load(os.path.join(path_subj, self.list_fname_im[i]))
-            self.list_im.append(nib_im_temp.get_data())
-            
-            nib_mask_temp = nib.load(os.path.join(path_subj, self.list_fname_mask[i]))
-            self.list_mask.append(nib_mask_temp.get_data())
-            
-            self.list_headers.append(nib_im_temp.header)
+            nib_im_temp = nib.load(os.path.join(subj.path, subj.fname_im))
+            subj.im_data = nib_im_temp.get_data()
+
+            if subj.fname_mask != '':
+                nib_mask_temp = nib.load(os.path.join(subj.path, subj.fname_mask))
+                subj.mask_data = nib_mask_temp.get_data()
+            #
+            subj.hdr = nib_im_temp.header
             #
             # change orientation to make sure axial slices are in the correct dimension (= axial in the third dimension)
-            im_ori, im_reorient = self.reorient(self.list_im[i], self.list_headers[i])
-            mask_ori, mask_reorient = self.reorient(self.list_mask[i], nib_mask_temp.header)
-            assert im_ori == mask_ori, "ERROR: image and mask don't have the same orientation"
-            self.list_orientation.append(im_ori)
+            im_ori, im_reorient = self.reorient(subj.im_data, subj.hdr)
+            if subj.fname_mask != '':
+                mask_ori, mask_reorient = self.reorient(subj.mask_data, nib_mask_temp.header)
+                assert im_ori == mask_ori, "ERROR: image and mask don't have the same orientation"
+
+            subj.orientation = im_ori
             #
             # resample/interpolate to param.im_size with tensorflow -> force interpolation to a square image
             im_resample = self.resample(im_reorient)
-            mask_resample = self.resample(mask_reorient)
+            if subj.fname_mask != '':
+                mask_resample = self.resample(mask_reorient)
+            else:
+                mask_resample = None
             #
             #standardize the image intensities
             im_stand = self.standardization(im_resample)
             #
-            # add preprocessed images and masks to list
+            # add preprocessed images and masks to list and to subject object
             list_im_preprocessed.append(im_stand)
             list_mask_preprocessed.append(mask_resample)
+            #
+            subj.im_data_preprocessed = im_stand
+            subj.mask_data_preprocessed = mask_resample
+        #
         #
         # select subjects used for training and testing
-        self.list_subj_train, self.list_subj_test, list_im_train, list_im_test, list_mask_train, list_mask_test = train_test_split(self.list_subj, list_im_preprocessed, list_mask_preprocessed, test_size=1-self.param.split, train_size=self.param.split)
-        # select subjects used for training and validation
-        self.list_subj_train, self.list_subj_valid, list_im_train, list_im_valid, list_mask_train, list_mask_valid = train_test_split(self.list_subj_train, list_im_train, list_mask_train, test_size=self.param.valid_split, train_size=1-self.param.valid_split)
-        
-        self.train_imgs_tensor = np.concatenate(list_im_train, axis = 0)
-        self.train_masks_tensor = np.concatenate(list_mask_train, axis = 0)
+        if self.param.split == 0.0:
+            self.list_subj_train, list_im_train, list_mask_train = [], [], []
+            self.list_subj_test, list_im_test, list_mask_test = self.list_subjects, list_im_preprocessed, list_mask_preprocessed
+        elif self.param.split == 1.0:
+            self.list_subj_train, list_im_train, list_mask_train = self.list_subjects, list_im_preprocessed, list_mask_preprocessed
+            self.list_subj_test, list_im_test, list_mask_test = [], [], []
+        else:
+            self.list_subj_train, self.list_subj_test, list_im_train, list_im_test, list_mask_train, list_mask_test = train_test_split(self.list_subjects, list_im_preprocessed, list_mask_preprocessed, test_size=1-self.param.split, train_size=self.param.split)
+        self.list_subj_test = np.asarray(self.list_subj_test)
 
-        self.valid_imgs_tensor = np.concatenate(list_im_valid, axis = 0)
-        self.valid_masks_tensor = np.concatenate(list_mask_valid, axis = 0)
-        
-        self.test_imgs_tensor = np.concatenate(list_im_test, axis = 0)
-        self.test_masks_tensor = np.concatenate(list_mask_test, axis = 0)
-        
+        # ignore subjects without mask for training
+        i_no_mask_train = [i for i, mask in enumerate(list_mask_train) if mask is None]
+        for i in i_no_mask_train:
+            print "Subject " + self.list_subj_train[i].path + " doesn't have a mask, ignored for training."
+            list_mask_train.pop(i)
+            list_im_train.pop(i)
+            self.list_subj_train.pop(i)
+
+        if self.param.split != 0.0:
+            # select subjects used for training and validation
+            self.list_subj_train, self.list_subj_valid, list_im_train, list_im_valid, list_mask_train, list_mask_valid = train_test_split(self.list_subj_train, list_im_train, list_mask_train, test_size=self.param.valid_split, train_size=1-self.param.valid_split)
+        else:
+            self.list_subj_valid, list_im_valid, list_mask_valid = [], [], []
+
+        if self.param.split != 0.0:
+            self.train_imgs_tensor = np.concatenate(list_im_train, axis = 0)
+            self.train_masks_tensor = np.concatenate(list_mask_train, axis = 0)
+            #
+            self.valid_imgs_tensor = np.concatenate(list_im_valid, axis = 0)
+            self.valid_masks_tensor = np.concatenate(list_mask_valid, axis = 0)
+        #
         self.fname_model = time.strftime("%y%m%d%H%M%S")+'_CNN_model_seg_'+str(self.param.epochs)+'epochs_'+str(self.param.num_layer)+'_layers'
-        np.save(self.fname_model+'_test_imgs.npy', self.test_imgs_tensor)
-        np.save(self.fname_model+'_test_masks.npy', self.test_masks_tensor)
+        np.save(self.fname_model+'_test_set.npy', self.list_subj_test)
+        #
+        f = open(self.fname_model+'_info.txt', 'w')
+        #
+        f.write("Subjects used for training: \n")
+        for subj in self.list_subj_train:
+            f.write("\t"+subj.path+"\n")
+            subj.type='train'
+        #
+        f.write("Subjects used for validation: \n")
+        for subj in self.list_subj_valid:
+            f.write("\t" + subj.path + "\n")
+            subj.type = 'valid'
+        #
+        f.write("Subjects used for testing: \n")
+        for subj in self.list_subj_test:
+            f.write("\t" + subj.path + "\n")
+            subj.type = 'test'
+        #
+        f.close()
 
-
-    def reorient(self, image, hdr):
+    def reorient(self, image, hdr, put_back=False):
         # change the orientation of an image
         ori = tuple(nib.orientations.io_orientation(hdr.get_best_affine())[:,0]) # 0=R-L, 1=P-A, 2=I-S
         if ori.index(2) != 0:
-            image_reorient = np.swapaxes(image, 0, ori.index(2))
-            image_reorient = image_reorient[..., np.newaxis]
+            if not put_back: # preprocessing
+                image_reorient = np.swapaxes(image, 0, ori.index(2))
+                image_reorient = image_reorient[..., np.newaxis]
+            else: #postprocessing
+                image_reorient = np.swapaxes(image, ori.index(2), 0)
         else:
             image_reorient = image
         image_reorient = image_reorient.astype('float32')
-#        image_reorient = image_reorient.astype('int32')
         #
         return ori, image_reorient
 
@@ -193,12 +255,7 @@ class Segmentation():
             ## convert from type tensor to numpy array
             image_resample = tf.Session().run(image_resample)
         return image_resample 
-    
-    def resample_sk(self, image):
-        from skimage.transform import resize
-        image_resample = np.asarray([resize(im, (self.param.im_size, self.param.im_size)) for im in image])
-        return image_resample
-    
+
     def standardization(self, image):
         mean = np.mean(image)
         std = np.std(image)
@@ -319,18 +376,32 @@ class Segmentation():
      
         
     def predict_seg(self):
+        # TODO : give possibility to save result elsewhere than in the same folder as original data
         model = self.load_model_seg()
-        result = model.predict(self.test_imgs_tensor, verbose=1)
-        
-        print "done"
-        plt.imshow(result[10,:,:,0], cmap='gray')
-        plt.show()
-        print 'showing'
-        
-        self.dice_spine_test = self.dice_coef(self.test_masks_tensor, result)
-        sess = tf.Session()
-        self.dice_spine_test = sess.run(self.dice_spine_test)
-        print 'Dice Coefficient for the test set numpy tensor is: '+str(self.dice_spine_test)
+
+        dict_dc = {'subject': [], 'dice_coeff': []}
+
+        for subj_test in self.list_subj_test:
+            # predict segmentation
+            subj_seg_data = model.predict(subj_test.im_data_preprocessed, verbose=1)
+            # put seg back into original space
+            subj_seg_data_post_proc = self.post_processing(subj_seg_data, subj_test)
+            # save segmentation imsage
+            im_seg = nib.Nifti1Image(subj_seg_data_post_proc, None, subj_test.hdr)
+            path_out = add_suffix(subj_test.path+subj_test.fname_im, '_seg_cnn')
+            nib.save(im_seg, path_out)
+            #
+            # compute dice coeff if mask is available
+            dict_dc['subject'].append(subj_test.path)
+            if subj_test.mask_data is not None:
+                dc_subj = dice_coeff_np(subj_test.mask_data.astype(float), subj_seg_data_post_proc.astype(float))
+                dict_dc['dice_coeff'].append(dc_subj)
+            else:
+                dict_dc['dice_coeff'].append(np.nan)
+        #
+        dataframe_dc = pd.DataFrame(dict_dc, index=range(len(dict_dc['subject'])))
+        dataframe_dc.to_csv(self.fname_model+'_dice_coeff_res.csv')
+
 
     def load_model_seg(self):
         list_files = glob.glob('*'+str(self.param.epochs)+'epochs_'+str(self.param.num_layer)+'_layers.h5')
@@ -339,11 +410,68 @@ class Segmentation():
         model = load_model(model_file, custom_objects={'dice_coef_loss': self.dice_coef_loss, 'dice_coef': self.dice_coef})
         
         fname_model = model_file.split('.')[-2]
-        self.test_imgs_tensor = np.load(fname_model+'_test_imgs.npy')
-        self.test_masks_tensor = np.load(fname_model+'_test_masks.npy')
-        
+        if os.path.isfile(fname_model+'_test_set.npy'):
+            self.list_subj_test = np.load(fname_model+'_test_set.npy')
+        elif self.list_subj_test == []:
+            self.preprocessing()
+        #
         return model
-        
+
+    def post_processing(self, data, subj):
+        # reorient data to original orientation
+        ori, data_reorient = self.reorient(data, subj.hdr, put_back=True)
+        # resample to original dimension
+        data_resample = self.resample_mask_to_subj(data_reorient, subj)
+        # binarize output seg
+        thr = 0.5
+        data_resample[data_resample < thr] = 0
+        data_resample[data_resample >= thr] = 1
+
+        return data_resample
+
+    def resample_mask_to_subj(self, data, subj, interp=3):
+        from skimage.transform import resize
+        # get rid of the extra dimension
+        if len(data.shape) == 4 and data.shape[3]==1:
+            data = data.reshape(data.shape[:-1])
+        original_shape = subj.im_data.shape
+        new_shape_2d = (original_shape[subj.orientation.index(0)], original_shape[subj.orientation.index(1)])
+
+        data_resample = np.zeros(original_shape)
+        for i in range(original_shape[subj.orientation.index(2)]):
+            if subj.orientation.index(2) == 0:
+                data_resample[i,:,:] = resize(data[i,:,:], new_shape_2d, order=interp)
+            if subj.orientation.index(2) == 1:
+                data_resample[:,i,:] = resize(data[:,i,:], new_shape_2d, order=interp)
+            if subj.orientation.index(2) == 2:
+                data_resample[:,:,i] = resize(data[:,:,i], new_shape_2d, order=interp)
+
+        return data_resample
+
+
+
+def get_data(param):
+    list_subjects = []
+    for subj in os.listdir(param.path):
+        if os.path.isdir(os.path.join(param.path, subj)):
+            path_contrast = os.path.join(param.path, subj, param.contrast_folder)
+            fname_im = ''
+            fname_mask = ''
+            for f in os.listdir(path_contrast):
+                if param.mask in f and fname_mask == '':
+                    fname_mask = f
+                elif param.im in f and fname_im == '':
+                    fname_im = f
+            if fname_im != '':
+                list_subjects.append(Subject(path=path_contrast, fname_im=fname_im, fname_mask=fname_mask))
+    return list_subjects
+
+
+
+def dice_coeff_np(y_true, y_pred):
+    intersection = np.sum(y_true*y_pred)
+    dc = 2*intersection /(np.sum(y_true)+np.sum(y_pred))
+    return dc
 
 def main():
     parser = get_parser()
@@ -352,7 +480,7 @@ def main():
     seg.preprocessing()
     if param.split != 0.0:
         seg.train()
-    
+
     if param.split != 1.0:
         seg.predict_seg()
     ##
