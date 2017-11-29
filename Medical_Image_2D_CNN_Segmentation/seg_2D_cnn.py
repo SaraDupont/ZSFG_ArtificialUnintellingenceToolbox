@@ -379,17 +379,32 @@ class Segmentation():
      
         
     def predict_seg(self):
+        # TODO : give possibility to save result elsewhere than in the same folder as original data
         model = self.load_model_seg()
+
+        dict_dc = {'subject': [], 'dice_coeff': []}
+
         for subj_test in self.list_subj_test:
+            # predict segmentation
             subj_seg_data = model.predict(subj_test.im_data_preprocessed, verbose=1)
+            # put seg back into original space
             subj_seg_data_post_proc = self.post_processing(subj_seg_data, subj_test)
+            # save segmentation imsage
             im_seg = nib.Nifti1Image(subj_seg_data_post_proc, None, subj_test.hdr)
             path_out = add_suffix(subj_test.path+subj_test.fname_im, '_seg_cnn')
             nib.save(im_seg, path_out)
-        # print "done"
-        # plt.imshow(result[10,:,:,0], cmap='gray')
-        # plt.show()
-        # print 'showing'
+            #
+            # compute dice coeff if mask is available
+            dict_dc['subject'].append(subj_test.path)
+            if subj_test.mask_data is not None:
+                dc_subj = dice_coeff_np(subj_test.mask_data.astype(float), subj_seg_data_post_proc.astype(float))
+                dict_dc['dice_coeff'].append(dc_subj)
+            else:
+                dict_dc['dice_coeff'].append(np.nan)
+        #
+        dataframe_dc = pd.DataFrame(dict_dc, index=range(len(dict_dc['subject'])))
+        dataframe_dc.to_csv(self.fname_model+'_dice_coeff_res.csv')
+
 
     def load_model_seg(self):
         list_files = glob.glob('*'+str(self.param.epochs)+'*.h5')
@@ -446,6 +461,10 @@ def add_suffix(path, suffix):
     path_suffix = '/'.join(list_path)
     return path_suffix
 
+def dice_coeff_np(y_true, y_pred):
+    intersection = np.sum(y_true*y_pred)
+    dc = 2*intersection /(np.sum(y_true)+np.sum(y_pred))
+    return dc
 
 def main():
     parser = get_parser()
