@@ -327,10 +327,13 @@ class Segmentation():
         plt.show()
         print 'showing'
         
-        
+        self.dice_spine_test = self.dice_coef(self.test_masks_tensor, result)
+        sess = tf.Session()
+        self.dice_spine_test = sess.run(self.dice_spine_test)
+        print 'Dice Coefficient for the test set numpy tensor is: '+str(self.dice_spine_test)
 
     def load_model_seg(self):
-        list_files = glob.glob('*'+str(self.param.epochs)+'.h5')
+        list_files = glob.glob('*'+str(self.param.epochs)+'epochs_'+str(self.param.num_layer)+'_layers.h5')
         model_file = max(list_files, key=os.path.getctime)
         
         model = load_model(model_file, custom_objects={'dice_coef_loss': self.dice_coef_loss, 'dice_coef': self.dice_coef})
@@ -349,6 +352,7 @@ def main():
     seg.preprocessing()
     if param.split != 0.0:
         seg.train()
+    
     if param.split != 1.0:
         seg.predict_seg()
     ##
