@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="89c2f1e9-7a61-499d-9b6e-b3a67b7e4327" name="Default" comment="">
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/seg_2D_cnn.py" afterPath="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/seg_2D_cnn.py" />
-    </list>
+    <list default="true" id="89c2f1e9-7a61-499d-9b6e-b3a67b7e4327" name="Default" comment="" />
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="TRACKING_ENABLED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -51,8 +48,8 @@
       <file leaf-file-name="seg_2D_cnn.py" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/seg_2D_cnn.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="526">
-              <caret line="403" column="9" lean-forward="true" selection-start-line="403" selection-start-column="9" selection-end-line="403" selection-end-column="9" />
+            <state relative-caret-position="729">
+              <caret line="409" column="65" lean-forward="true" selection-start-line="409" selection-start-column="65" selection-end-line="409" selection-end-column="65" />
               <folding>
                 <element signature="e#0#15#0" expanded="true" />
               </folding>
@@ -451,8 +448,8 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/seg_2D_cnn.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="526">
-          <caret line="403" column="9" lean-forward="true" selection-start-line="403" selection-start-column="9" selection-end-line="403" selection-end-column="9" />
+        <state relative-caret-position="729">
+          <caret line="409" column="65" lean-forward="true" selection-start-line="409" selection-start-column="65" selection-end-line="409" selection-end-column="65" />
           <folding>
             <element signature="e#0#15#0" expanded="true" />
           </folding>
