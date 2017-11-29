@@ -1,32 +1,16 @@
 import os
 import commands
 import argparse
-from seg_2D_cnn import get_data
+from seg_2D_cnn import get_data, get_parser_data
 from utils import *
 
 
 
-def get_parser():
-    parser = argparse.ArgumentParser(description="Preprocessing function for spinal cord data")
-    parser.add_argument("-data",
-                        help="Data to train and/or test the segmentation on",
-                        type=str,
-                        dest="path")
-    parser.add_argument("-cfolder",
-                        help="Name of the contrast folder you're doing the segmentation on. For ex \"T2\" or \"T2_ax\".",
-                        type=str,
-                        dest="contrast_folder",
-                        default="")
-    parser.add_argument("-im",
-                        help="String to look for in the images name.",
-                        type=str,
-                        dest="im",
-                        default="im")
-    parser.add_argument("-mask",
-                        help="String to look for in the masks name.",
-                        type=str,
-                        dest="mask",
-                        default="mask")
+def get_parser_sc():
+    parser_data = get_parser_data()
+    #
+    parser = argparse.ArgumentParser(description="Preprocessing function for spinal cord data",
+                                     parents=[parser_data])
     parser.add_argument("-c",
                         help="Contrast of the data to segment (used for automatic SC detection).",
                         type=str,
@@ -69,6 +53,6 @@ def preprocessing_spine(param):
 
 
 if __name__ == '__main__':
-    parser = get_parser()
+    parser = get_parser_sc()
     param = parser.parse_args()
     preprocessing_spine(param)

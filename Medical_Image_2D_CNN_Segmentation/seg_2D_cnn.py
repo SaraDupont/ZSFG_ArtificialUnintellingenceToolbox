@@ -21,10 +21,8 @@ from keras.utils import plot_model
 from scipy import stats
 import matplotlib.pyplot as plt
 
-
-def get_parser():
-    ### TODO: do a parent parser for the data argument that are gonna be used by other (application specific) parsers (for ex in each preprocessing)
-    parser = argparse.ArgumentParser(description="Segmentation function based on 2D convolutional neural networks")
+def get_parser_data():
+    parser = argparse.ArgumentParser()
     parser.add_argument("-data",
                         help="Data to train and/or test the segmentation on",
                         type=str,
@@ -44,6 +42,12 @@ def get_parser():
                         type=str,
                         dest="mask",
                         default="mask")
+    return parser
+
+def get_parser():
+    parser_data = get_parser_data()
+    #
+    parser = argparse.ArgumentParser(description="Segmentation function based on 2D convolutional neural networks", parents=[parser_data])
     parser.add_argument("-split",
                         help="Split ratio between train and test sets. Values should be between 0 and 1. Example: -split 0.4 would use 40 percent of the data for training and 60 percent for testing.",
                         type=restricted_float,

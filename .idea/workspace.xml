@@ -2,10 +2,8 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="89c2f1e9-7a61-499d-9b6e-b3a67b7e4327" name="Default" comment="">
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/seg_2D_cnn.py" afterPath="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/seg_2D_cnn.py" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/spine_data_preproc.py" afterPath="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/spine_data_preproc.py" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/utils.py" afterPath="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/utils.py" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="TRACKING_ENABLED" value="true" />
@@ -31,8 +29,8 @@
       <file leaf-file-name="spine_data_preproc.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/spine_data_preproc.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="595">
-              <caret line="35" column="0" lean-forward="false" selection-start-line="35" selection-start-column="0" selection-end-line="35" selection-end-column="0" />
+            <state relative-caret-position="935">
+              <caret line="55" column="26" lean-forward="false" selection-start-line="55" selection-start-column="26" selection-end-line="55" selection-end-column="26" />
               <folding>
                 <element signature="e#0#9#0" expanded="true" />
               </folding>
@@ -43,9 +41,11 @@
       <file leaf-file-name="seg_2D_cnn.py" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/seg_2D_cnn.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="34">
-              <caret line="2" column="10" lean-forward="false" selection-start-line="2" selection-start-column="0" selection-end-line="3" selection-end-column="0" />
-              <folding />
+            <state relative-caret-position="799">
+              <caret line="47" column="0" lean-forward="false" selection-start-line="47" selection-start-column="0" selection-end-line="47" selection-end-column="0" />
+              <folding>
+                <element signature="e#0#15#0" expanded="true" />
+              </folding>
             </state>
           </provider>
         </entry>
@@ -100,10 +100,10 @@
       <list>
         <option value="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/train_spine.py" />
         <option value="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/CustomImageDataGenerator.py" />
-        <option value="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/seg_2D_cnn.py" />
         <option value="$PROJECT_DIR$/utils.py" />
         <option value="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/utils.py" />
         <option value="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/spine_data_preproc.py" />
+        <option value="$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/seg_2D_cnn.py" />
       </list>
     </option>
   </component>
@@ -259,7 +259,7 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/seg_2D_cnn.py</url>
-          <line>392</line>
+          <line>396</line>
           <option name="timeStamp" value="27" />
         </line-breakpoint>
       </breakpoints>
@@ -438,16 +438,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/spine_data_preproc_old.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="0">
-          <caret line="0" column="0" lean-forward="false" selection-start-line="0" selection-start-column="0" selection-end-line="0" selection-end-column="0" />
-          <folding>
-            <element signature="e#0#37#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/utils.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="136">
@@ -474,19 +464,31 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/spine_data_preproc.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="595">
-          <caret line="35" column="0" lean-forward="false" selection-start-line="35" selection-start-column="0" selection-end-line="35" selection-end-column="0" />
+        <state relative-caret-position="935">
+          <caret line="55" column="26" lean-forward="false" selection-start-line="55" selection-start-column="26" selection-end-line="55" selection-end-column="26" />
           <folding>
             <element signature="e#0#9#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/spine_data_preproc_old.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="0">
+          <caret line="0" column="0" lean-forward="false" selection-start-line="0" selection-start-column="0" selection-end-line="0" selection-end-column="0" />
+          <folding>
+            <element signature="e#0#37#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/Medical_Image_2D_CNN_Segmentation/seg_2D_cnn.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="34">
-          <caret line="2" column="10" lean-forward="false" selection-start-line="2" selection-start-column="0" selection-end-line="3" selection-end-column="0" />
-          <folding />
+        <state relative-caret-position="799">
+          <caret line="47" column="0" lean-forward="false" selection-start-line="47" selection-start-column="0" selection-end-line="47" selection-end-column="0" />
+          <folding>
+            <element signature="e#0#15#0" expanded="true" />
+          </folding>
         </state>
       </provider>
     </entry>
