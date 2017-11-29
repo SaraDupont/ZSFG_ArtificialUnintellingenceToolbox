@@ -31,10 +31,11 @@ def preprocessing_lesions(param):
         for f in os.listdir(subj.path):
             if param.lesion in f and fname_lesions == '':
                 fname_lesions = f
-        # crop lesion file
-        fname_lesions_out = add_suffix(fname_lesions, '_crop')
-        cmd_crop_lesion = 'sct_crop_image -i ' + os.path.join(subj.path,fname_lesions) + ' -m ' + list_fname_croping_mask[i] + ' -o ' + os.path.join(subj.path, fname_lesions_out)
-        status, output = commands.getstatusoutput(cmd_crop_lesion)
+        if fname_lesions != '':
+            # crop lesion file
+            fname_lesions_out = add_suffix(fname_lesions, '_crop')
+            cmd_crop_lesion = 'sct_crop_image -i ' + os.path.join(subj.path,fname_lesions) + ' -m ' + list_fname_croping_mask[i] + ' -o ' + os.path.join(subj.path, fname_lesions_out)
+            status, output = commands.getstatusoutput(cmd_crop_lesion)
         #
         # dilate and smooth SC
         im_sc = nib.load(os.path.join(subj.path,subj.fname_mask))

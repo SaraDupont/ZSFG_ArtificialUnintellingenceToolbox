@@ -10,7 +10,8 @@ def get_parser_sc():
     parser_data = get_parser_data()
     #
     parser = argparse.ArgumentParser(description="Preprocessing function for spinal cord data",
-                                     parents=[parser_data])
+                                     parents=[parser_data],
+                                     add_help=False)
     parser.add_argument("-c",
                         help="Contrast of the data to segment (used for automatic SC detection).",
                         type=str,
@@ -35,9 +36,9 @@ def preprocessing_spine(param):
         #
         # create mask around SC
         size_mask = '40'
-        cmd_create_mask = 'sct_create_mask -i '+os.path.join(subj.path, subj.fname_im)+' -p centerline,'+fname_centerline_auto+' -size '+size_mask+' -f box'
+        fname_mask_sc = os.path.join(subj.path, 'mask_'+subj.fname_im)
+        cmd_create_mask = 'sct_create_mask -i '+os.path.join(subj.path, subj.fname_im)+' -p centerline,'+fname_centerline_auto+' -size '+size_mask+' -f box -o '+fname_mask_sc
         status, output = commands.getstatusoutput(cmd_create_mask)
-        fname_mask_sc = os.path.join(subj.path, 'mask_', subj.fname_im)
         list_fname_croping_mask.append(fname_mask_sc)
         #
         # crop image and SC seg (if exists)

@@ -22,7 +22,7 @@ from scipy import stats
 import matplotlib.pyplot as plt
 
 def get_parser_data():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-data",
                         help="Data to train and/or test the segmentation on",
                         type=str,
