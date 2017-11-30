@@ -35,7 +35,7 @@ def preprocessing_spine(param):
         fname_centerline_auto = os.path.join(path_out, add_suffix(subj.fname_im, '_centerline_optic'))
         #
         # create mask around SC
-        size_mask = '40'
+        size_mask = '70'
         fname_mask_sc = os.path.join(subj.path, 'mask_'+subj.fname_im)
         cmd_create_mask = 'sct_create_mask -i '+os.path.join(subj.path, subj.fname_im)+' -p centerline,'+fname_centerline_auto+' -size '+size_mask+' -f box -o '+fname_mask_sc
         status, output = commands.getstatusoutput(cmd_create_mask)

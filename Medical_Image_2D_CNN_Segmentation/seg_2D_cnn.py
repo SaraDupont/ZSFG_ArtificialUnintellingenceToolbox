@@ -20,6 +20,8 @@ import pandas as pd
 from keras.utils import plot_model
 from scipy import stats
 import matplotlib.pyplot as plt
+from skimage.transform import resize
+
 
 def get_parser_data():
     parser = argparse.ArgumentParser(add_help=False)
@@ -73,6 +75,11 @@ def get_parser():
                         type=int,
                         dest="epochs",
                         default=5000)
+    parser.add_argument("-preproc",
+                    help="Preprocessing type to put in model name.",
+                    type=str,
+                    dest="preprocessing_type",
+                    default="")
     return parser
 
 class Subject():
@@ -211,6 +218,8 @@ class Segmentation():
             self.valid_masks_tensor = np.concatenate(list_mask_valid, axis = 0)
         #
         self.fname_model = time.strftime("%y%m%d%H%M%S")+'_CNN_model_seg_'+str(self.param.epochs)+'epochs_'+str(self.param.num_layer)+'_layers'
+        if self.param.preprocessing_type != "":
+            self.fname_model += '_preprocessing_type_'+self.param.preprocessing_type
         np.save(self.fname_model+'_test_set.npy', self.list_subj_test)
         #
         f = open(self.fname_model+'_info.txt', 'w')
@@ -404,7 +413,10 @@ class Segmentation():
 
 
     def load_model_seg(self):
-        list_files = glob.glob('*'+str(self.param.epochs)+'epochs_'+str(self.param.num_layer)+'_layers.h5')
+        str_model = str(self.param.epochs)+'epochs_'+str(self.param.num_layer)+'_layers'
+        if self.param.preprocessing_type != "":
+            str_model += '_preprocessing_type_'+self.param.preprocessing_type
+        list_files = glob.glob('*'+str_model+'.h5')
         model_file = max(list_files, key=os.path.getctime)
         
         model = load_model(model_file, custom_objects={'dice_coef_loss': self.dice_coef_loss, 'dice_coef': self.dice_coef})
@@ -430,7 +442,6 @@ class Segmentation():
         return data_resample
 
     def resample_mask_to_subj(self, data, subj, interp=3):
-        from skimage.transform import resize
         # get rid of the extra dimension
         if len(data.shape) == 4 and data.shape[3]==1:
             data = data.reshape(data.shape[:-1])
@@ -470,7 +481,7 @@ def get_data(param):
 
 def dice_coeff_np(y_true, y_pred):
     intersection = np.sum(y_true*y_pred)
-    dc = 2*intersection /(np.sum(y_true)+np.sum(y_pred))
+    dc = 2.*intersection /(np.sum(y_true)+np.sum(y_pred))
     return dc
 
 def main():
