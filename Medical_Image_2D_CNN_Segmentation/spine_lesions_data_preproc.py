@@ -14,7 +14,7 @@ def get_parser_lesion():
     #
     parser = argparse.ArgumentParser(description="Preprocessing function for spinal cord Lesions data",
                                      parents=[parser_sc])
-    parser.add_argument("-lesions",
+    parser.add_argument("-lesion",
                         help="String to look for in the images name.",
                         type=str,
                         dest="lesion",
