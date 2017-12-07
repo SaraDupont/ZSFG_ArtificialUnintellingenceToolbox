@@ -6,7 +6,7 @@ Created on Thu Nov 30 17:13:35 2017
 @author: mccoyd2
 """
 from utils import *
-import os, glob, re
+import os, glob
 import argparse
 from utils import *
 import nibabel as nib
@@ -149,19 +149,19 @@ class Hemorrhage_Classification():
         # Include keep_prob in feed_dict to control dropout rate.
     def run_model(self):
         for i in range(self.param.epochs):
-            batch_train = Hemorrhage_Classification.get_CT_data(self.list_subj_train, self.list_subj_train_labels)
-            batch_validation = Hemorrhage_Classification.get_CT_data(self.list_subj_valid, self.list_subj_valid_labels)
+            batch_train = Hemorrhage_Classification.get_CT_data(self.list_subj_train, self.list_subj_train_labels_encode)
+            batch_validation = Hemorrhage_Classification.get_CT_data(self.list_subj_valid, self.list_subj_valid_labels_encode)
             # Logging every 100th iteration in the training process.
             if i%100 == 0:
                 train_accuracy = self.accuracy.eval(feed_dict={self.x:batch_train[0], self.y_: batch_train[1], self.keep_prob: 1.0})
                 valid_accuracy = self.accuracy.eval(feed_dict={self.x:batch_validation[0], self.y_: batch_validation[1], self.keep_prob: 1.0})
                 print("step %d, training accuracy %g, validation accuracy %g"%(i, train_accuracy,valid_accuracy))
-            self.train_step.run(feed_dict={self.x: batch_train[0], self.y_: batch_train[1], self.keep_prob: 0.5})
+            train_step.run(feed_dict={self.x: batch_train[0], self.y_: batch_train[1], self.keep_prob: 0.5})
         
         # Evaulate our accuracy on the test data
         for i in len(self.list_subj_test)/(self.batch_size):
-            testset = Hemorrhage_Classification.get_CT_data(self.list_subj_test, self.list_subj_test_labels)
-            print("test accuracy %g"%self.accuracy.eval(feed_dict={self.x: self.list_subj_test[0], self.y_: self.list_subj_test_labels, self.keep_prob: 1.0}))
+            testset = Hemorrhage_Classification.get_CT_data(self.list_subj_test, self.list_subj_test_labels_encode)
+            print("test accuracy %g"%self.accuracy.eval(feed_dict={self.x: self.list_subj_test[0], y_: self.list_subj_test_labels, keep_prob: 1.0}))
 
         
     def weight_variable(self,shape):
@@ -262,12 +262,13 @@ class Hemorrhage_Classification():
 
     def get_filenames(self):    
         try:
-            self.subject_2_split = pd.read_csv("list_subjects_test.csv")
+            self.list_subjs_master = pd.read_csv(self.param.path+"/list_subjects_test.csv")
 
         except IOError:
             Hemorrhage_Classification.create_nifti(self)
+            self.list_subjs_master = pd.read_csv(self.param.path+"/list_subjects_test.csv")
         
-        subject_2_split = pd.read_csv("list_subjects_test.csv")
+        list_subjs_master['Datetime_Format'] =  pd.to_datetime(list_subjs_master['Datetime'], format='%Y%m%d%H%M%S')
         df = subject_2_split.rename(index = str, columns = {"Unnamed: 0":"index","0":"path"})
         df1 = pd.DataFrame(df.path.str.split('path:',1).tolist(), columns = ['Patient','Path'])
         df2 = df1.drop('Patient', 1)
@@ -339,16 +340,18 @@ class Hemorrhage_Classification():
                                                     if re.findall(r"2.*mm",proc):
                                                         path_study = os.path.join(dicom_sorted_path, subj, contrast, proc)
                                                         for fname in os.listdir(path_study):
+                                                            datetime = re.findall(r"(\d{14})",proc) 
                                                             if fname.endswith('.nii.gz'):
                                                                 nifti_name = fname
-                                                                datetime = proc.split('-')[1]
-                                                                datetime = datetime.split('_')[0]
+#                                                                datetime = proc.split('-')[1]
+#                                                                datetime = datetime.split('_')[0]
                                                                 self.list_subjects = self.list_subjects.append(pd.DataFrame({'MRN': [mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
                                                                 break
                                                         
                                                         else:
-                                                            datetime = proc.split('-')[1]
-                                                            datetime = datetime.split('_')[0]
+                                                            
+#                                                            datetime = proc.split('-')[1]
+#                                                            datetime = datetime.split('_')[0]
                                                             #dicom2nifti.dicom_series_to_nifti(path_study, path_study, reorient_nifti=True)
                                                             print("Converting DICOMS for "+subj+" to NIFTI format")
 #                                                            path_study = os.path.join(dicom_sorted_path, subj, contrast, proc)
@@ -367,7 +370,7 @@ class Hemorrhage_Classification():
                                                                 self.list_subjects = self.list_subjects.append(pd.DataFrame({'MRN': [mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
                                                             
         list_subjects_to_DF = pd.DataFrame(self.list_subjects)
-        list_subjects_to_DF.to_csv("list_subjects_test.csv")                                            
+        list_subjects_to_DF.to_csv(self.param.path+"/list_subjects_test.csv")                                            
 
 def main():
     parser = get_parser()
