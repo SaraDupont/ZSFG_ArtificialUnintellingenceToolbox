@@ -6,7 +6,7 @@ Created on Thu Nov 30 17:13:35 2017
 @author: mccoyd2
 """
 from utils import *
-import os, glob
+import os, glob, re
 import argparse
 from utils import *
 import nibabel as nib
@@ -156,12 +156,12 @@ class Hemorrhage_Classification():
                 train_accuracy = self.accuracy.eval(feed_dict={self.x:batch_train[0], self.y_: batch_train[1], self.keep_prob: 1.0})
                 valid_accuracy = self.accuracy.eval(feed_dict={self.x:batch_validation[0], self.y_: batch_validation[1], self.keep_prob: 1.0})
                 print("step %d, training accuracy %g, validation accuracy %g"%(i, train_accuracy,valid_accuracy))
-            train_step.run(feed_dict={self.x: batch_train[0], self.y_: batch_train[1], self.keep_prob: 0.5})
+            self.train_step.run(feed_dict={self.x: batch_train[0], self.y_: batch_train[1], self.keep_prob: 0.5})
         
         # Evaulate our accuracy on the test data
         for i in len(self.list_subj_test)/(self.batch_size):
             testset = Hemorrhage_Classification.get_CT_data(self.list_subj_test, self.list_subj_test_labels)
-            print("test accuracy %g"%self.accuracy.eval(feed_dict={self.x: self.list_subj_test[0], y_: self.list_subj_test_labels, keep_prob: 1.0}))
+            print("test accuracy %g"%self.accuracy.eval(feed_dict={self.x: self.list_subj_test[0], self.y_: self.list_subj_test_labels, self.keep_prob: 1.0}))
 
         
     def weight_variable(self,shape):
