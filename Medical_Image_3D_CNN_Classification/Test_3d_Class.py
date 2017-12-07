@@ -6,7 +6,7 @@ Created on Thu Nov 30 17:13:35 2017
 @author: mccoyd2
 """
 from utils import *
-import os, glob
+import os, glob, re
 import argparse
 from utils import *
 import nibabel as nib
@@ -269,7 +269,7 @@ class Hemorrhage_Classification():
             Hemorrhage_Classification.create_nifti(self)
             self.list_subjs_master = pd.read_csv(self.param.path+"/list_subjects_test.csv")
         
-        list_subjs_master['Datetime_Format'] =  pd.to_datetime(list_subjs_master['Datetime'], format='%Y%m%d%H%M%S')
+        self.list_subjs_master['Datetime_Format'] =  pd.to_datetime(self.list_subjs_master['Datetime'], format='%Y%m%d%H%M%S')
         df = subject_2_split.rename(index = str, columns = {"Unnamed: 0":"index","0":"path"})
         df1 = pd.DataFrame(df.path.str.split('path:',1).tolist(), columns = ['Patient','Path'])
         df2 = df1.drop('Patient', 1)
@@ -341,7 +341,7 @@ class Hemorrhage_Classification():
                                                     if re.findall(r"2.*mm",proc):
                                                         path_study = os.path.join(dicom_sorted_path, subj, contrast, proc)
                                                         for fname in os.listdir(path_study):
-                                                            datetime = re.findall(r"(\d{14})",proc) 
+                                                            datetime = re.findall(r"(\d{14})",proc)[0] 
                                                             if fname.endswith('.nii.gz'):
                                                                 nifti_name = fname
 #                                                                datetime = proc.split('-')[1]
