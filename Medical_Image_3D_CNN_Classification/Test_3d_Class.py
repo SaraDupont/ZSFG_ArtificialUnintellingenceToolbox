@@ -44,6 +44,7 @@ FLAGS.data_dir = '/media/mccoyd2/hamburger/Hemorrhage_Study'
 
 
 def get_parser_classify():
+    # classification parser
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-data",
                         help="Data to train and/or test the classification on",
