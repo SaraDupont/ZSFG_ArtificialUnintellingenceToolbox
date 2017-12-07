@@ -2,8 +2,6 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="89c2f1e9-7a61-499d-9b6e-b3a67b7e4327" name="Default" comment="">
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/ZSFG_ArtificialUnintellingenceToolbox.iml" afterPath="$PROJECT_DIR$/.idea/ZSFG_ArtificialUnintellingenceToolbox.iml" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/misc.xml" afterPath="$PROJECT_DIR$/.idea/misc.xml" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/Medical_Image_3D_CNN_Classification/Test_3d_Class.py" afterPath="$PROJECT_DIR$/Medical_Image_3D_CNN_Classification/Test_3d_Class.py" />
     </list>
@@ -43,8 +41,8 @@
       <file leaf-file-name="Test_3d_Class.py" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/Medical_Image_3D_CNN_Classification/Test_3d_Class.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="321">
-              <caret line="46" column="27" lean-forward="false" selection-start-line="46" selection-start-column="27" selection-end-line="46" selection-end-column="27" />
+            <state relative-caret-position="311">
+              <caret line="369" column="64" lean-forward="false" selection-start-line="369" selection-start-column="64" selection-end-line="369" selection-end-column="64" />
               <folding>
                 <element signature="e#109#128#0" expanded="true" />
               </folding>
@@ -723,8 +721,8 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/Medical_Image_3D_CNN_Classification/Test_3d_Class.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="321">
-          <caret line="46" column="27" lean-forward="false" selection-start-line="46" selection-start-column="27" selection-end-line="46" selection-end-column="27" />
+        <state relative-caret-position="311">
+          <caret line="369" column="64" lean-forward="false" selection-start-line="369" selection-start-column="64" selection-end-line="369" selection-end-column="64" />
           <folding>
             <element signature="e#109#128#0" expanded="true" />
           </folding>
