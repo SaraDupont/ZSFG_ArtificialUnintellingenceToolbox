@@ -324,35 +324,34 @@ class Hemorrhage_Classification():
         return x_data_, y_data
     
     def create_nifti(self):
+        self.param.procedure = [x.lower() for x in self.param.procedure]
         for group in os.listdir(self.param.path):
             if os.path.isdir(os.path.join(self.param.path, group)):
                 for batch in os.listdir(os.path.join(self.param.path, group)):
                     dicom_sorted_path  = os.path.join(self.param.path, group, batch, 'DICOM-SORTED')
-                    if os.path.isdir(os.path.join(dicom_sorted_path)):
-                        for subj in os.listdir(os.path.join(dicom_sorted_path)):
+                    if os.path.isdir(dicom_sorted_path):
+                        for subj in os.listdir(dicom_sorted_path):
                             mrn = subj.split('-')[0]
                             if os.path.isdir(os.path.join(dicom_sorted_path, subj)):
-                                self.param.procedure = [x.lower() for x in self.param.procedure]
-                                for input_proc in self.param.procedure:
-                                    for contrast in os.listdir(os.path.join(dicom_sorted_path, subj)):
+                                for contrast in os.listdir(os.path.join(dicom_sorted_path, subj)):
+                                    for input_proc in self.param.procedure:
                                         if input_proc in contrast.lower():
                                             for proc in os.listdir(os.path.join(dicom_sorted_path, subj, contrast)):
                                                 if self.param.imaging_plane in proc:
                                                     if re.findall(r"2.*mm",proc):
                                                         path_study = os.path.join(dicom_sorted_path, subj, contrast, proc)
+                                                        nii_in_path = False
                                                         for fname in os.listdir(path_study):
-                                                            datetime = re.findall(r"(\d{14})",proc)[0] 
+                                                            datetime = re.findall(r"(\d{14})",proc)[0]
                                                             if fname.endswith('.nii.gz'):
                                                                 nifti_name = fname
+                                                                nii_in_path = True
 #                                                                datetime = proc.split('-')[1]
 #                                                                datetime = datetime.split('_')[0]
-                                                                self.list_subjects = self.list_subjects.append(pd.DataFrame({'MRN': [mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
+                                                                self.list_subjects.append(pd.DataFrame({'MRN': [mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
                                                                 break
                                                         
-                                                        else:
-                                                            
-#                                                            datetime = proc.split('-')[1]
-#                                                            datetime = datetime.split('_')[0]
+                                                        if not nii_in_path:
                                                             #dicom2nifti.dicom_series_to_nifti(path_study, path_study, reorient_nifti=True)
                                                             print("Converting DICOMS for "+subj+" to NIFTI format")
 #                                                            path_study = os.path.join(dicom_sorted_path, subj, contrast, proc)
@@ -368,7 +367,7 @@ class Hemorrhage_Classification():
             #                                                    stack = stacks.values[0]
             #                                                    nii = stack.to_nifti()
             #                                                    nii.to_filename(subj+contrast+proc+'.nii.gz')
-                                                                self.list_subjects = self.list_subjects.append(pd.DataFrame({'MRN': [mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
+                                                                self.list_subjects.append(pd.DataFrame({'MRN': [mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
                                                             
         list_subjects_to_DF = pd.DataFrame(self.list_subjects)
         list_subjects_to_DF.to_csv(self.param.path+"/list_subjects_test.csv")                                            
