@@ -29,7 +29,7 @@ FLAGS.data_dir = '/home/ikbeom/Desktop/DL/MNIST_simpleCNN/data'
 FLAGS.num_class = 4
 
 def get_filenames(data_set):
-i    global filenames
+    global filenames
     labels = []
 
     with open(FLAGS.data_dir + '/labels.txt') as f:
@@ -45,7 +45,7 @@ i    global filenames
     random.shuffle(filenames)
 
 
-def get_data_jpeg(sess, data_set, batch_size):
+def get_data_CT(sess, data_set, batch_size):
     global batch_index, filenames
 
     if len(filenames) == 0: get_filenames(data_set) 
