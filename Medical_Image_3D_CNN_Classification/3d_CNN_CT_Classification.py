@@ -6,10 +6,6 @@ Created on Fri Oct 20 11:33:55 2017
 @author: davidbmccoy
 """
 
-# A script to load images and make batch.
-# Dependency: 'nibabel' to load MRI (NIFTI) images
-# Reference: http://blog.naver.com/kjpark79/220783765651
-
 import os
 import tensorflow as tf
 import numpy as np
