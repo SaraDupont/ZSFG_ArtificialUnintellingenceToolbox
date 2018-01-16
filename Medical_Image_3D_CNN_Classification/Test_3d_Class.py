@@ -121,10 +121,33 @@ class Subject():
         return to_print
     
     
-class Hemorrhage_Classification():
+class Classification():
     
     def __init__(self, param):
-        self.param = param 
+        self.param = param
+        #
+        self.folder_subj_lists = 'subject_lists'
+        if not os.path.isdir(os.path.join(self.param.path, self.folder_subj_lists)):
+            os.mkdir(os.path.join(self.param.path, self.folder_subj_lists))
+        self.fname_csv_master = 'master_subject_list.csv'
+        self.fname_csv_train = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_training_subjects.csv"
+        self.fname_csv_valid = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_validation_subjects.csv"
+        self.fname_csv_test = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_testing_subjects.csv"
+        #
+        self.folder_logs = 'logs'
+        if not os.path.isdir(os.path.join(self.param.path, self.folder_logs)):
+            os.mkdir(os.path.join(self.param.path, self.folder_logs))
+        #
+        self.folder_model = 'models'
+        if not os.path.isdir(os.path.join(self.param.path, self.folder_model)):
+            os.mkdir(os.path.join(self.param.path, self.folder_model))
+        self.fname_model = str(self.param.im_size)+"x"+str(self.param.im_depth)+"_"+str(self.param.num_layer)+"_"+str(self.param.batch_size)+"_"+str(self.param.epochs)+"_model.ckpt"
+        #
+        self.folder_results ='results'
+        if not os.path.isdir(os.path.join(self.param.path, self.folder_results)):
+            os.mkdir(os.path.join(self.param.path, self.folder_results))
+        self.fname_test_results = 'test_results_accuracy.csv'
+        #
         self.list_subjects = pd.DataFrame([])
         self.failed_nifti_conv_subjects = []
         self.batch_index_train = 0
@@ -141,10 +164,11 @@ class Hemorrhage_Classification():
         self.log_path = "/home/mccoyd2/Documents/ZSFG_ArtificialUnintellingenceToolbox/Medical_Image_3D_CNN_Classification"
         self.test_accuracy_list = []
         # Include keep_prob in feed_dict to control dropout rate.
+
     def run_model(self):
-        summary_writer = tf.summary.FileWriter(self.param.path+"/logs/training", self.sess.graph)
-        summary_writer2 = tf.summary.FileWriter(self.param.path+"/logs/validation", self.sess.graph)
-        summary_writer3 = tf.summary.FileWriter(self.param.path+"/logs/testing", self.sess.graph)
+        summary_writer = tf.summary.FileWriter(os.path.join(self.param.path, self.folder_logs, "training"), self.sess.graph)
+        summary_writer2 = tf.summary.FileWriter(os.path.join(self.param.path, self.folder_logs, "validation"), self.sess.graph)
+        summary_writer3 = tf.summary.FileWriter(os.path.join(self.param.path, self.folder_logs, "testing"), self.sess.graph)
 
 
         training_summary = tf.summary.scalar("training_accuracy", self.accuracy)
@@ -187,10 +211,10 @@ class Hemorrhage_Classification():
 
 
         self.saver = tf.train.Saver()
-        self.save_path = self.saver.save(self.sess, self.param.path+"/models/"+str(self.param.im_size)+"x"+str(self.param.im_depth)+"_"+str(self.param.num_layer)+"_"+str(self.param.batch_size)+"_"+str(self.param.epochs)+"_model.ckpt")
+        self.save_path = self.saver.save(self.sess, os.path.join(self.param.path, self.folder_model, self.fname_model))
         print("Model saved in file: %s" % self.save_path)
         self.test_accuracy_list = pd.DataFrame(self.test_accuracy_list)
-        self.test_accuracy_list.to_csv(self.param.path+"/test_results/test_accuracy.csv")
+        self.test_accuracy_list.to_csv(os.path.join(self.param.path, self.folder_results, self.fname_test_results))
     
     def build_vol_classifier(self):
         
@@ -300,27 +324,25 @@ class Hemorrhage_Classification():
         self.accuracy = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
         
         self.sess.run(tf.global_variables_initializer())
+        self.sess.run(tf.local_variables_initializer())
 
 
     def get_filenames(self):    
-        try:
-            self.list_subjs_master = pd.read_csv(self.param.path+"/subject_lists/master_subject_list.csv")
 
-        except IOError:
+        if not os.path.isfile(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_master)):
             self.create_nifti()
-            self.list_subjs_master = pd.read_csv(self.param.path+"/subject_lists/master_subject_list.csv")
-        
-        self.list_subjs_master['Datetime_Format'] =  pd.to_datetime(self.list_subjs_master['Datetime'], format='%Y%m%d%H%M%S')
-        mrn_groups = self.list_subjs_master.groupby(self.list_subjs_master['MRN'])
-        list_subj_initial_CT = mrn_groups.agg(lambda x: x.loc[x.Datetime_Format.argmin()]) # to access a specific mrn : list_subj_unique.loc[1948791]
 
-        self.data_from_text_ML = pd.read_csv(self.param.path+"/Reports/Hemorrhage_Reports_Batch_1_Predictions.csv")
-        self.merged_path_labels = pd.merge(list_subj_initial_CT,self.data_from_text_ML, on=['Acn'], how = 'inner')
+        self.list_subjs_master = pd.read_csv(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_master))
 
-        self.merged_path_labels = self.merged_path_labels[self.merged_path_labels.Label != 2]
+        ## additional filtering on datetime (keep only initial study) for Hemorrhage study
+        # self.additional_filtering()
+        #
         ##split the data
-        self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test,self.acn_training, self.acn_testing, self.reports_train, self.reports_test = train_test_split(self.merged_path_labels['Patient_Path'], self.merged_path_labels['Label'], self.merged_path_labels['MRN'],self.merged_path_labels['Acn'], self.merged_path_labels['Impression'], test_size=1-self.param.split, train_size=self.param.split)
-        self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid,self.acn_training, self.acn_valid, self.reports_train, self.reports_valid = train_test_split(self.list_subj_train, self.list_subj_train_labels, self.mrn_training, self.acn_training,self.reports_train, test_size=self.param.valid_split ,train_size=1-self.param.valid_split)
+        # self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test,self.acn_training, self.acn_testing, self.reports_train, self.reports_test = train_test_split(self.list_subjs_master['Patient_Path'], self.list_subjs_master['Label'], self.list_subjs_master['MRN'],self.list_subjs_master['Acn'], self.list_subjs_master['Impression'], test_size=1-self.param.split, train_size=self.param.split)
+        # self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid,self.acn_training, self.acn_valid, self.reports_train, self.reports_valid = train_test_split(self.list_subj_train, self.list_subj_train_labels, self.mrn_training, self.acn_training,self.reports_train, test_size=self.param.valid_split ,train_size=1-self.param.valid_split)
+
+        self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test,self.acn_training, self.acn_testing= train_test_split(self.list_subjs_master['Patient_Path'], self.list_subjs_master['Label'], self.list_subjs_master['MRN'],self.list_subjs_master['Acn'], test_size=1-self.param.split, train_size=self.param.split)
+        self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid,self.acn_training, self.acn_valid = train_test_split(self.list_subj_train, self.list_subj_train_labels, self.mrn_training, self.acn_training, test_size=self.param.valid_split ,train_size=1-self.param.valid_split)
 
         self.list_subj_train_labels = self.list_subj_train_labels.values
         self.list_subj_valid_labels = self.list_subj_valid_labels.values
@@ -342,16 +364,34 @@ class Hemorrhage_Classification():
         self.list_subj_valid = list(self.list_subj_valid.str.strip())
         self.list_subj_test = list(self.list_subj_test.str.strip())
 
-        train = pd.DataFrame({'MRN': self.mrn_training,'Acn': self.acn_training,'Paths':self.list_subj_train,'Report': self.reports_train,'Labels':self.list_subj_train_labels})
-        valid = pd.DataFrame({'MRN': self.mrn_valid,'Acn': self.acn_valid, 'Paths':self.list_subj_valid,'Report': self.reports_valid,'Labels':self.list_subj_valid_labels})
-        test = pd.DataFrame({'MRN': self.mrn_test,'Acn': self.acn_testing,'Paths':self.list_subj_test,'Report': self.reports_test,'Labels': self.list_subj_test_labels})
+        # train = pd.DataFrame({'MRN': self.mrn_training,'Acn': self.acn_training,'Paths':self.list_subj_train,'Report': self.reports_train,'Label':self.list_subj_train_labels})
+        # valid = pd.DataFrame({'MRN': self.mrn_valid,'Acn': self.acn_valid, 'Paths':self.list_subj_valid,'Report': self.reports_valid,'Label':self.list_subj_valid_labels})
+        # test = pd.DataFrame({'MRN': self.mrn_test,'Acn': self.acn_testing,'Paths':self.list_subj_test,'Report': self.reports_test,'Label': self.list_subj_test_labels})
+        #
+        train = pd.DataFrame({'MRN': self.mrn_training,'Acn': self.acn_training,'Paths':self.list_subj_train,'Label':self.list_subj_train_labels})
+        valid = pd.DataFrame({'MRN': self.mrn_valid,'Acn': self.acn_valid, 'Paths':self.list_subj_valid,'Label':self.list_subj_valid_labels})
+        test = pd.DataFrame({'MRN': self.mrn_test,'Acn': self.acn_testing,'Paths':self.list_subj_test,'Label': self.list_subj_test_labels})
 
         # self.valid_data_df_for_review = pd.concat(self.list_subj_valid, self.list_subj_valid_labels_encode)
         # self.test_data_df_for_review = pd.concat(self.list_subj_test, self.list_subj_test_labels_encode)
 
-        train.to_csv(self.param.path+"/subject_lists/"+str(self.param.im_size)+"x"+str(self.param.im_depth)+"_"+str(self.param.num_layer)+"_"+str(self.param.batch_size)+"_"+str(self.param.epochs)+"_training_subjects.csv")
-        valid.to_csv(self.param.path+"/subject_lists/"+str(self.param.im_size)+"x"+str(self.param.im_depth)+"_"+str(self.param.num_layer)+"_"+str(self.param.batch_size)+"_"+str(self.param.epochs)+"_validation_subjects.csv")
-        test.to_csv(self.param.path+"/subject_lists/"+str(self.param.im_size)+"x"+str(self.param.im_depth)+"_"+str(self.param.num_layer)+"_"+str(self.param.batch_size)+"_"+str(self.param.epochs)+"_testing_subjects.csv")
+        train.to_csv(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_train))
+        valid.to_csv(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_valid))
+        test.to_csv(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_test))
+
+    def additional_filtering(self):
+        self.list_subjs_master['Datetime_Format'] = pd.to_datetime(self.list_subjs_master['Datetime'],
+                                                                   format='%Y%m%d%H%M%S')
+        mrn_groups = self.list_subjs_master.groupby(self.list_subjs_master['MRN'])
+        list_subj_initial_CT = mrn_groups.agg(
+            lambda x: x.loc[x.Datetime_Format.argmin()])  # to access a specific mrn : list_subj_unique.loc[1948791]
+
+        self.data_from_text_ML = pd.read_csv(self.param.path + "/Reports/Hemorrhage_Reports_Batch_1_Predictions.csv")
+        merged_path_labels = pd.merge(list_subj_initial_CT, self.data_from_text_ML, on=['Acn'], how='inner')
+
+        merged_path_labels = merged_path_labels[merged_path_labels.Label != 2]
+        #
+        self.list_subjs_master = merged_path_labels
 
         
     def get_CT_data(self, data_set, data_set_labels, batch_index):
@@ -432,63 +472,86 @@ class Hemorrhage_Classification():
 
 
 
+#     def create_nifti(self):
+#         self.param.procedure = [x.lower() for x in self.param.procedure]
+#         for group in os.listdir(self.param.path):
+#             if os.path.isdir(os.path.join(self.param.path, group)):
+#                 for batch in os.listdir(os.path.join(self.param.path, group)):
+#                     dicom_sorted_path  = os.path.join(self.param.path, group, batch, 'DICOM-SORTED')
+#                     if os.path.isdir(dicom_sorted_path):
+#                         for subj in os.listdir(dicom_sorted_path):
+#                             self.mrn = subj.split('-')[0]
+#                             if os.path.isdir(os.path.join(dicom_sorted_path, subj)):
+#                                 for contrast in os.listdir(os.path.join(dicom_sorted_path, subj)):
+#                                     for input_proc in self.param.procedure:
+#                                         if input_proc in contrast.lower():
+#                                             for proc in os.listdir(os.path.join(dicom_sorted_path, subj, contrast)):
+#                                                 if self.param.imaging_plane in proc:
+#                                                     if re.findall(r"2.*mm",proc):
+#                                                         path_study = os.path.join(dicom_sorted_path, subj, contrast, proc)
+#                                                         nii_in_path = False
+#                                                         ACN = contrast.split('-')[0]
+#                                                         for fname in os.listdir(path_study):
+#                                                             datetime = re.findall(r"(\d{14})",proc)[0]
+#                                                             if fname.endswith('.nii.gz'):
+#                                                                 nifti_name = fname
+#                                                                 nii_in_path = True
+# #                                                                datetime = proc.split('-')[1]
+# #                                                                datetime = datetime.split('_')[0]
+#                                                                 self.list_subjects = self.list_subjects.append(pd.DataFrame({'Acn':[ACN], 'MRN': [self.mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
+#                                                                 break
+#
+#                                                         if not nii_in_path:
+#                                                             ACN = contrast.split('-')[0]
+#                                                             #dicom2nifti.dicom_series_to_nifti(path_study, path_study, reorient_nifti=True)
+#                                                             print("Converting DICOMS for "+subj+" to NIFTI format")
+# #                                                            path_study = os.path.join(dicom_sorted_path, subj, contrast, proc)
+#                                                             status, output = commands.getstatusoutput('dcm2nii '+path_study)
+#                                                             if status != 0:
+#                                                                 self.failed_nifti_conv_subjects.append(subj)
+#                                                             else:
+#                                                                 index_nifti = [i for i, s in enumerate(output) if ">" in str(s)]
+#                                                                 index_end = [i for i, s in enumerate(output[index_nifti[0]:]) if "\n" in str(s)]
+#                                                                 nifti_name = output[index_nifti[0]+1:index_nifti[0]+index_end[0]]
+#                                                                 #src_dcms = glob(path_study+'/*.dcm')
+#             #                                                    stacks = dcmstack.parse_and_stack(src_dcms)
+#             #                                                    stack = stacks.values[0]
+#             #                                                    nii = stack.to_nifti()
+#             #                                                    nii.to_filename(subj+contrast+proc+'.nii.gz')
+#                                                                 self.list_subjects = self.list_subjects.append(pd.DataFrame({'Acn':[ACN],'MRN': [self.mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
+#
+#         list_subjects_to_DF = pd.DataFrame(self.list_subjects)
+#         list_subjects_to_DF.to_csv(os.path.join(self.param.path, self.folder_subj_lists, self.file_csv_master))
+#
+
     def create_nifti(self):
-        self.param.procedure = [x.lower() for x in self.param.procedure]
-        for group in os.listdir(self.param.path):
-            if os.path.isdir(os.path.join(self.param.path, group)):
-                for batch in os.listdir(os.path.join(self.param.path, group)):
-                    dicom_sorted_path  = os.path.join(self.param.path, group, batch, 'DICOM-SORTED')
-                    if os.path.isdir(dicom_sorted_path):
-                        for subj in os.listdir(dicom_sorted_path):
-                            self.mrn = subj.split('-')[0]
-                            if os.path.isdir(os.path.join(dicom_sorted_path, subj)):
-                                for contrast in os.listdir(os.path.join(dicom_sorted_path, subj)):
-                                    for input_proc in self.param.procedure:
-                                        if input_proc in contrast.lower():
-                                            for proc in os.listdir(os.path.join(dicom_sorted_path, subj, contrast)):
-                                                if self.param.imaging_plane in proc:
-                                                    if re.findall(r"2.*mm",proc):
-                                                        path_study = os.path.join(dicom_sorted_path, subj, contrast, proc)
-                                                        nii_in_path = False
-                                                        ACN = contrast.split('-')[0]
-                                                        for fname in os.listdir(path_study):
-                                                            datetime = re.findall(r"(\d{14})",proc)[0]
-                                                            if fname.endswith('.nii.gz'):
-                                                                nifti_name = fname
-                                                                nii_in_path = True
-#                                                                datetime = proc.split('-')[1]
-#                                                                datetime = datetime.split('_')[0]
-                                                                self.list_subjects = self.list_subjects.append(pd.DataFrame({'Acn':[ACN], 'MRN': [self.mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
-                                                                break
-                                                        
-                                                        if not nii_in_path:
-                                                            ACN = contrast.split('-')[0]
-                                                            #dicom2nifti.dicom_series_to_nifti(path_study, path_study, reorient_nifti=True)
-                                                            print("Converting DICOMS for "+subj+" to NIFTI format")
-#                                                            path_study = os.path.join(dicom_sorted_path, subj, contrast, proc)
-                                                            status, output = commands.getstatusoutput('dcm2nii '+path_study)
-                                                            if status != 0:
-                                                                self.failed_nifti_conv_subjects.append(subj)
-                                                            else:
-                                                                index_nifti = [i for i, s in enumerate(output) if ">" in str(s)]
-                                                                index_end = [i for i, s in enumerate(output[index_nifti[0]:]) if "\n" in str(s)]
-                                                                nifti_name = output[index_nifti[0]+1:index_nifti[0]+index_end[0]]
-                                                                #src_dcms = glob(path_study+'/*.dcm')
-            #                                                    stacks = dcmstack.parse_and_stack(src_dcms)
-            #                                                    stack = stacks.values[0]
-            #                                                    nii = stack.to_nifti()
-            #                                                    nii.to_filename(subj+contrast+proc+'.nii.gz')
-                                                                self.list_subjects = self.list_subjects.append(pd.DataFrame({'Acn':[ACN],'MRN': [self.mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
-                                                            
-        list_subjects_to_DF = pd.DataFrame(self.list_subjects)
-        list_subjects_to_DF.to_csv(self.param.path+"/subject_lists/master_subject_list.csv")
+        ## TODO: change the hardcoded name for the dource CSV file by an argument
+        data_info = pd.read_csv(os.path.join(self.param.path, "data_moffitt_ct_findings.csv"))
+        len_mrn = 8
+        list_subjects = []
+        for mrn in data_info['MRN']:
+            str_mrn = str(mrn)
+            if len(str_mrn) < len_mrn:
+                str_mrn = '0' * (len_mrn - len(str_mrn)) + str_mrn
+            # for each subject: get the label ## 0="no finding", 1="medical finding", 2="image not usable (artifact or cut FOV)", -1="no image"
+            label = int(data_info[data_info.MRN == mrn]['finding_num']) if len(data_info[data_info.MRN == mrn])==1 else int(data_info.loc[data_info[data_info.MRN == mrn].index.values.tolist()[0]]['finding_num'])
+            path_ct = os.path.join(self.param.path, str_mrn, 'ct')
+            if label in [0, 1] and os.path.isdir(path_ct):
+                fname_ct = os.path.join(path_ct, os.listdir(path_ct)[0])
+                acn = int(data_info[data_info.MRN == mrn]['AccessionNumber']) if len(data_info[data_info.MRN == mrn])==1 else int(data_info.loc[data_info[data_info.MRN == mrn].index.values.tolist()[0]]['AccessionNumber'])
+                list_subjects.append({'Acn': acn, 'MRN': str_mrn, 'Patient_Path': fname_ct, 'Label': label})
+        #
+        df_subjs = pd.DataFrame(list_subjects)
+        #
+        df_subjs.to_csv(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_master))
+
 
 
 
 def main():
     parser = get_parser()
     param = parser.parse_args()
-    classify = Hemorrhage_Classification(param=param)
+    classify = Classification(param=param)
     classify.get_filenames()
     # classify.manual_model_test()
     classify.build_vol_classifier()
