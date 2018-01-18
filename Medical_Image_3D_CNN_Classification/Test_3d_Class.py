@@ -161,7 +161,7 @@ class Classification():
         self.sess = tf.InteractiveSession(config=tf.ConfigProto(log_device_placement=True))
         self.x_ = tf.placeholder(tf.float32, shape=[None, self.param.im_size*self.param.im_size*self.param.im_depth]) # [None, 28*28]
         self.y_ = tf.placeholder(tf.float32, shape=[None, self.param.nlabel])  # [None, 10]
-        self.log_path = "/home/mccoyd2/Documents/ZSFG_ArtificialUnintellingenceToolbox/Medical_Image_3D_CNN_Classification"
+        self.log_path = "/home/saradupont/Documents/data/ct_data_moffitt/logs/"
         self.test_accuracy_list = []
         # Include keep_prob in feed_dict to control dropout rate.
 
@@ -177,7 +177,7 @@ class Classification():
 
         for i in range(self.param.epochs):
 
-            batch_train = self.get_CT_data(self.list_subj_train, self.list_subj_train_labels, self.batch_index_train)
+            batch_train = self.get_CT_data(self.list_subj_train, self.list_subj_train_labels, self.batch_index_train) # x_data_, y_data, batch_index, list_dataset_paths
             self.batch_index_train = batch_train[2]
             print("Training batch %d is loaded"%(i))
             batch_validation = self.get_CT_data(self.list_subj_valid, self.list_subj_valid_labels, self.batch_index_valid)
@@ -201,11 +201,17 @@ class Classification():
             self.train_step.run(feed_dict={self.x_: batch_train[0], self.y_: batch_train[1], self.keep_prob: 0.5})
         
         # Evaulate our accuracy on the test data
-        for i in range(len(self.list_subj_test)/(self.param.batch_size)):
+        n_test_batches = len(self.list_subj_test)/(self.param.batch_size)
+        n_test_batches = n_test_batches+1 if n_test_batches==0 else n_test_batches
+        list_pred_labels = []
+        for i in range(n_test_batches):
             testset = self.get_CT_data(self.list_subj_test, self.list_subj_test_labels, self.batch_index_test)
             test_accuracy = self.accuracy.eval(feed_dict={self.x_: testset[0], self.y_: testset[1], self.keep_prob: 1.0})
             self.batch_index_test = testset[2]
             self.test_accuracy_list.append(test_accuracy)
+            empty_y = np.zeros((testset[0].shape[0], 2)) ### can be used to replace testset[1] as the test set shouldn't necessarily have labels if we don't want to compute accuracy
+            y_pred = self.sess.run(tf.argmax(self.y_conv.eval(feed_dict={self.x_: testset[0], self.y_: empty_y, self.keep_prob: 1.0}), 1))
+            [list_pred_labels.append(y) for y in y_pred]
             print("test accuracy %g"%test_accuracy)
             #summary_writer3.add_summary(test_accuracy, i)
 
@@ -215,7 +221,10 @@ class Classification():
         print("Model saved in file: %s" % self.save_path)
         self.test_accuracy_list = pd.DataFrame(self.test_accuracy_list)
         self.test_accuracy_list.to_csv(os.path.join(self.param.path, self.folder_results, self.fname_test_results))
-    
+        res_pred = pd.DataFrame({'path': self.list_subj_test, 'true_labels': self.list_subj_test_labels, 'pred_labels': list_pred_labels})
+        res_pred.to_csv(os.path.join(self.param.path, self.folder_results, 'results_test_prediction.csv'))
+
+
     def build_vol_classifier(self):
         
         self.features = 32
@@ -313,14 +322,14 @@ class Classification():
         W_fc2 = weight_variable([1024, self.param.nlabel]) # [1024, 10]
         b_fc2 = bias_variable([self.param.nlabel]) # [10]
         
-        y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
-        print(y_conv.get_shape)  # -> output: 10
+        self.y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
+        print(self.y_conv.get_shape)  # -> output: 10
     
         ## Train and Evaluate the Model
         # set up for optimization (optimizer:ADAM)
-        self.cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y_, logits=y_conv))
+        self.cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y_, logits=self.y_conv))
         self.train_step = tf.train.AdamOptimizer(1e-3).minimize(self.cross_entropy)  # 1e-4
-        self.correct_prediction = tf.equal(tf.argmax(y_conv,1), tf.argmax(self.y_,1))
+        self.correct_prediction = tf.equal(tf.argmax(self.y_conv,1), tf.argmax(self.y_,1))
         self.accuracy = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
         
         self.sess.run(tf.global_variables_initializer())
@@ -404,7 +413,8 @@ class Classification():
         if end >= max:
             end = max
             batch_index = 0
-
+        else:
+            batch_index += self.param.batch_size  # update index for the next batch
 
         #x_data = np.array([], np.float32)
         y_data = np.zeros((len(range(begin, end)), self.param.nlabel)) # zero-filled list for 'one hot encoding'
@@ -435,7 +445,6 @@ class Classification():
             #y_data.append(data_set_labels[i])
             index += 1
     
-        batch_index += self.param.batch_size  # update index for the next batch
         x_data = np.asarray(x_data)
         y_data = np.asarray(y_data)
 
@@ -544,7 +553,6 @@ class Classification():
         df_subjs = pd.DataFrame(list_subjects)
         #
         df_subjs.to_csv(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_master))
-
 
 
 
