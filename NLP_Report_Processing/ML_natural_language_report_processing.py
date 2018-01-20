@@ -224,16 +224,14 @@ class Radiology_Report_NLP:
             self.reports_apply = self.reports_apply.reset_index(drop=True)
             self.reports_apply = self.reports_apply[:-1]
             # self.reports_apply = self.reports_apply.drop(self.param.outcome, 1)
-            self.reports_apply = self.reports_apply[self.param.impressions]
+            self.reports_apply = self.drop_columns(self.reports_apply)
 
             if np.isnan(self.param.apply_label):
                 self.reports_train = self.reports[self.reports[self.param.outcome].notnull()]
             else:
                 self.reports_train = self.reports[self.reports[self.param.outcome] != self.param.apply_label]
             #
-            for col in self.reports_train.columns:
-                if col not in [self.param.outcome, self.param.impressions]:
-                    self.reports_train = self.reports_train.drop(col, 1)
+            self.reports_train = self.drop_columns(self.reports_train)
             #
             self.reports_train = self.reports_train.drop_duplicates()
 
@@ -241,6 +239,12 @@ class Radiology_Report_NLP:
 
         if self.param.apply_all:
             self.reports_apply = self.reports
+
+    def drop_columns(self, reports):
+        for col in reports.columns:
+            if col not in [self.param.outcome, self.param.impressions]:
+                reports = reports.drop(col, 1)
+        return reports
 
     def report_preprocessing(self, reports, vocab_set):
 
