@@ -59,9 +59,14 @@ def get_parser_classify():
                         default="Impression")
     parser.add_argument("-exclude-label",
                         help="Label that should not be used for report classification",
-                        type=str,
+                        type=int,
                         dest="exclude_label",
-                        default="NA")
+                        default=np.nan)
+    parser.add_argument("-apply-label",
+                        help="Label for the non reviewed data (to be used as apply data)",
+                        type=int,
+                        dest="apply_label",
+                        default=np.nan)
     parser.add_argument("-output-path",
                         help="Path for saving models and figures",
                         type=str,
@@ -157,7 +162,14 @@ class Radiology_Report_NLP:
                                    'missing': [-999],
                                    'seed': [1337]}
 
-        self.reports = pd.read_excel(os.path.join(self.param.data_path, self.param.data_name), header=0)
+        if '.xls' in self.param.data_name:
+            self.reports = pd.read_excel(os.path.join(self.param.data_path, self.param.data_name), header=0)
+        elif '.csv' in self.param.data_name:
+            self.reports = pd.read_csv(os.path.join(self.param.data_path, self.param.data_name))
+        else:
+            print 'ERROR: input file should be a .xls or .csv file.'
+            self.reports = None
+
         self.dic_model_names = {
             'Bayesian': 'bayes_model.sav',
             'SGD': 'SGD_model.sav',
@@ -201,18 +213,31 @@ class Radiology_Report_NLP:
     def define_apply_data(self):
 
         if not self.param.apply_all:
-            if self.param.exclude_label is not "NA":
-                self.reports = self.reports.drop(
-                    self.reports[self.reports.Osteomyelitis == int(self.param.exclude_label)].index)
+            if not np.isnan(self.param.exclude_label):
+                self.reports = self.reports.drop(self.reports[self.reports[self.param.outcome] == int(self.param.exclude_label)].index)
 
+            if np.isnan(self.param.apply_label):
                 self.reports_apply = self.reports[self.reports[self.param.outcome].isnull()]
-                self.reports_apply = self.reports_apply.reset_index(drop=True)
-                self.reports_apply = self.reports_apply[:-1]
-                self.reports_apply = self.reports_apply.drop('Osteomyelitis', 1)
+            else:
+                self.reports_apply = self.reports[self.reports[self.param.outcome] == self.param.apply_label]
 
+            self.reports_apply = self.reports_apply.reset_index(drop=True)
+            self.reports_apply = self.reports_apply[:-1]
+            # self.reports_apply = self.reports_apply.drop(self.param.outcome, 1)
+            self.reports_apply = self.reports_apply[self.param.impressions]
+
+            if np.isnan(self.param.apply_label):
                 self.reports_train = self.reports[self.reports[self.param.outcome].notnull()]
+            else:
+                self.reports_train = self.reports[self.reports[self.param.outcome] != self.param.apply_label]
+            #
+            for col in self.reports_train.columns:
+                if col not in [self.param.outcome, self.param.impressions]:
+                    self.reports_train = self.reports_train.drop(col, 1)
+            #
+            self.reports_train = self.reports_train.drop_duplicates()
 
-                self.reports_train = self.reports_train.reset_index(drop=True)
+            self.reports_train = self.reports_train.reset_index(drop=True)
 
         if self.param.apply_all:
             self.reports_apply = self.reports
@@ -228,7 +253,7 @@ class Radiology_Report_NLP:
         for i in range(reports.shape[0]):
             sys.stdout.write('\r')
             # the exact output you're looking for:
-            j = (i + 1) / n
+            j = (i + 1) / float(n)
             sys.stdout.write("[%-20s] %d%%" % ('=' * int(20 * j), 100 * j))
 
             sys.stdout.flush()
