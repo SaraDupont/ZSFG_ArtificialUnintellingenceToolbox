@@ -7,11 +7,11 @@ import pandas as pd
 
 def get_parser():
     parser = argparse.ArgumentParser(description='Quality control function to review nifti images easily. 2D images will be saved as JPEG in the specified output folder. 3D images will be opened individually in fslview and labeled from the terminal after closing fslview.')
-    parser.add_argument("-im-type",
-                        help="image type, choose between 2D or 3D images",
+    parser.add_argument("-type",
+                        help="type of review: fsl = open fslview and write label ni terminal, jpg = save images as jpg (only for 2D)",
                         type=str,
-                        dest="im_type",
-                        choices=['2d', '3d'],
+                        dest="type",
+                        choices=['fsl', 'jpg'],
                         required=True)
     parser.add_argument("-list-paths",
                         help="numpy file containing the list of paths of the images to review.",
@@ -19,17 +19,17 @@ def get_parser():
                         dest="list_paths",
                         default="")
     parser.add_argument("-ofolder",
-                        help="Folder to output the JPEG images (2D) ot CSV file with assigned labels (3D)",
+                        help="Folder to output the JPEG images (jpg) ot CSV file with assigned labels (fsl)",
                         type=create_folder,
                         dest="ofolder",
                         default="./")
     parser.add_argument('-output-csv',
-                        help="Output filename for the CSV file (only for 3D images).",
+                        help="Output filename for the CSV file (only for fsl mode).",
                         type=str,
                         dest="fname_csv",
                         default="images_labels.csv")
     parser.add_argument('-b',
-                        help="boundaries to set the contrast in fslview (only for 3D images).\nexample: -b 0,100",
+                        help="boundaries to set the contrast in fslview (only for fsl mode).\nexample: -b 0,100",
                         type=str,
                         dest="boundaries_contrast",
                         default="")
@@ -79,8 +79,7 @@ def save_2d_images(param):
             print 'WARNING: ', fname, 'does not exist.'
 
 
-def review_3d_images(param):
-    ## TODO: IMPROVE TO INCLUDE MISSING IMAGES IN THE LIST (LABELED AS -1)
+def review_images(param):
     list_labels = []
     list_fnames = []
     list_paths_exist = []
@@ -97,12 +96,17 @@ def review_3d_images(param):
                 cmd_fslview += ' -b '+param.boundaries_contrast
             #run fslview
             s, o = commands.getstatusoutput(cmd_fslview)
-            label = raw_input("Please label the image you just closed: ")
+            label = raw_input("Please label the image ("+fname_im+"): ")
             #
             # store image name and label
             list_paths_exist.append(path_im)
             list_fnames.append(fname_im)
             list_labels.append(label)
+        else:
+            list_paths_exist.append(fname)
+            list_fnames.append(fname)
+            list_labels.append('-1')
+
     #
     # save the result as a CSV file
     df = pd.DataFrame({'path': list_paths_exist, 'fname': list_fnames, 'label': list_labels})
@@ -112,10 +116,10 @@ def main():
     parser = get_parser()
     param = parser.parse_args()
     #
-    if param.im_type == '2d':
+    if param.type == 'jpg':
         save_2d_images(param)
-    elif param.im_type == '3d':
-        review_3d_images(param)
+    elif param.type == 'fsl':
+        review_images(param)
 
 
 if __name__=="__main__":
