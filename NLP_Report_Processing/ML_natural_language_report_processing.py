@@ -170,6 +170,10 @@ class Radiology_Report_NLP:
             print 'ERROR: input file should be a .xls or .csv file.'
             self.reports = None
 
+        self.folder_models = 'Models'
+        if not os.path.isdir(os.path.join(self.param.output_path, self.folder_models)):
+            os.mkdir(os.path.join(self.param.output_path, self.folder_models))
+
         self.dic_model_names = {
             'Bayesian': 'bayes_model.sav',
             'SGD': 'SGD_model.sav',
@@ -183,13 +187,17 @@ class Radiology_Report_NLP:
         # define data
         self.define_apply_data()
         folder_word2vec = 'Word2Vec'
+        if not os.path.isdir(os.path.join(self.param.output_path, folder_word2vec)):
+            os.mkdir(os.path.join(self.param.output_path, folder_word2vec))
         # preprocess train and apply datasets
         if not self.param.apply_all:
             fname_csv_train = 'Word_to_vec_X_Sparse_Matrix_train.csv'
             fname_csv_apply = 'Word_to_vec_X_Sparse_Matrix_apply.csv'
             if not self.param.skip_preprocessing:
-                self.X_train, self.text_feature_train = self.report_preprocessing(self.reports_train, vocab_set=0)
-                self.X_apply, self.text_feature_apply = self.report_preprocessing(self.reports_apply, vocab_set=1)
+                corpus_train = np.load(os.path.join(self.param.output_path, 'corpus_train.npy')) if os.path.isfile(os.path.join(self.param.output_path, 'corpus_train.npy')) else None
+                corpus_apply = np.load(os.path.join(self.param.output_path, 'corpus_apply.npy')) if os.path.isfile(os.path.join(self.param.output_path, 'corpus_apply.npy')) else None
+                self.X_train, self.text_feature_train = self.report_preprocessing(self.reports_train, vocab_set=0, corpus=corpus_train)
+                self.X_apply, self.text_feature_apply = self.report_preprocessing(self.reports_apply, vocab_set=1, corpus=corpus_apply)
 
                 self.X_train.to_csv(os.path.join(self.param.output_path, folder_word2vec, fname_csv_train))
                 self.X_apply.to_csv(os.path.join(self.param.output_path, folder_word2vec, fname_csv_apply))
@@ -211,10 +219,12 @@ class Radiology_Report_NLP:
         self.split_data()
 
     def define_apply_data(self):
-
         if not self.param.apply_all:
             if not np.isnan(self.param.exclude_label):
                 self.reports = self.reports.drop(self.reports[self.reports[self.param.outcome] == int(self.param.exclude_label)].index)
+            self.reports = self.drop_columns(self.reports)
+            # remove NAN impressions
+            self.reports = self.reports.dropna(axis=0, how='any')
 
             if np.isnan(self.param.apply_label):
                 self.reports_apply = self.reports[self.reports[self.param.outcome].isnull()]
@@ -224,14 +234,14 @@ class Radiology_Report_NLP:
             self.reports_apply = self.reports_apply.reset_index(drop=True)
             self.reports_apply = self.reports_apply[:-1]
             # self.reports_apply = self.reports_apply.drop(self.param.outcome, 1)
-            self.reports_apply = self.drop_columns(self.reports_apply)
+            # self.reports_apply = self.drop_columns(self.reports_apply)
 
             if np.isnan(self.param.apply_label):
                 self.reports_train = self.reports[self.reports[self.param.outcome].notnull()]
             else:
                 self.reports_train = self.reports[self.reports[self.param.outcome] != self.param.apply_label]
             #
-            self.reports_train = self.drop_columns(self.reports_train)
+            # self.reports_train = self.drop_columns(self.reports_train)
             #
             self.reports_train = self.reports_train.drop_duplicates()
 
@@ -246,46 +256,47 @@ class Radiology_Report_NLP:
                 reports = reports.drop(col, 1)
         return reports
 
-    def report_preprocessing(self, reports, vocab_set):
+    def report_preprocessing(self, reports, vocab_set, corpus=None):
 
         nltk.download('stopwords')
 
-        ## create a corpus of lowered, stemmed, and stop words removed
-        corpus = []
-        n = reports.shape[0]
-        print("Creating word to vector dataframe after cleaning reports of stopwords etc.")
-        for i in range(reports.shape[0]):
-            sys.stdout.write('\r')
-            # the exact output you're looking for:
-            j = (i + 1) / float(n)
-            sys.stdout.write("[%-20s] %d%%" % ('=' * int(20 * j), 100 * j))
+        if corpus is None:
+            ## create a corpus of lowered, stemmed, and stop words removed
+            corpus = []
+            n = reports.shape[0]
+            print("Creating word to vector dataframe after cleaning reports of stopwords etc.")
+            for i in range(reports.shape[0]):
+                sys.stdout.write('\r')
+                # the exact output you're looking for:
+                j = (i + 1) / float(n)
+                sys.stdout.write("[%-20s] %d%%" % ('=' * int(20 * j), 100 * j))
 
-            sys.stdout.flush()
-            sleep(0.25)
-            # review = re.sub('(?<=Dr.)(.{20}(?:\s|.))', '',reports[self.param.impressions][i])
-            review = re.sub(r'[Dd]iscussed.*\d', '', reports[self.param.impressions].iloc[i], flags=re.DOTALL)
-            review = re.sub('[^a-zA-Z]', ' ', review)
-            review = review.lower()
-            review = review.split()
-            ps = PorterStemmer()
-            review = [ps.stem(word) for word in review if not word in set(stopwords.words('english'))]
-            review = ' '.join(review)
-            corpus.append(review)
+                sys.stdout.flush()
+                sleep(0.25)
+                # review = re.sub('(?<=Dr.)(.{20}(?:\s|.))', '',reports[self.param.impressions][i])
+                review = re.sub(r'[Dd]iscussed.*\d', '', reports[self.param.impressions].iloc[i], flags=re.DOTALL)
+                review = re.sub('[^a-zA-Z]', ' ', review)
+                review = review.lower()
+                review = review.split()
+                ps = PorterStemmer()
+                review = [ps.stem(word) for word in review if not word in set(stopwords.words('english'))]
+                review = ' '.join(review)
+                corpus.append(review)
 
         if vocab_set == 0:
             cv = CountVectorizer(max_features=self.param.number_word_features, ngram_range=(1, self.param.max_ngrams))
             X = cv.fit_transform(corpus).toarray()
-            text_features = cv.get_feature_names()
             self.vocabulary = cv.vocabulary_
+            # save to pickle
             pickle_out = open(self.param.output_path + "/vocabulary.pickle", "wb")
             pickle.dump(self.vocabulary, pickle_out)
             pickle_out.close()
 
         else:
-
             cv = CountVectorizer(vocabulary=self.vocabulary, ngram_range=(1, self.param.max_ngrams))
             X = cv.fit_transform(corpus).toarray()
-            text_features = cv.get_feature_names()
+
+        text_features = cv.get_feature_names()
 
         X = pd.DataFrame(X)
         X.columns = text_features
@@ -294,11 +305,8 @@ class Radiology_Report_NLP:
 
     def split_data(self):
         if not self.param.apply_all:
-            self.y_train = self.reports_train.loc[:][self.param.outcome].values
-            self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(self.X_train, self.y_train,
-                                                                                    test_size=0.30, random_state=0)
-        if self.param.apply_all:
-            pass
+            self.y_train = self.reports_train[self.param.outcome]
+            self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(self.X_train, self.y_train, test_size=0.30, random_state=0)
 
     def run_models(self):
         bayes_res = self.bayes_classifier()
@@ -324,7 +332,7 @@ class Radiology_Report_NLP:
 
         bayes_res = Model_results(model_name, Accuracy_bayes, Precision_bayes, Recall_bayes, F1_Score_bayes, cm_bayes)
 
-        pickle.dump(classifier_GNB, open(self.param.output_path + "/Models/" + self.dic_model_names[model_name], 'wb'))
+        pickle.dump(classifier_GNB, open(os.path.join(self.param.output_path, self.folder_models, self.dic_model_names[model_name]), 'wb'))
 
         return bayes_res
 
@@ -346,9 +354,9 @@ class Radiology_Report_NLP:
             total = 0
             for train_indices, test_indices in kf:
                 train_X = self.X_train.iloc[train_indices]
-                train_Y = self.y_train[train_indices]
+                train_Y = self.y_train.iloc[train_indices]
                 test_X = self.X_train.iloc[test_indices]
-                test_Y = self.y_train[test_indices]
+                test_Y = self.y_train.iloc[test_indices]
 
                 reg = Model(**param)
                 reg.fit(train_X, train_Y)
@@ -364,7 +372,7 @@ class Radiology_Report_NLP:
 
                 total += accuracy_score(test_Y, predictions)
 
-            pickle.dump(reg, open(self.param.output_path + "/Models/" + self.dic_model_names[model_name], 'wb'))
+            pickle.dump(reg, open(os.path.join(self.param.output_path, self.folder_models,  self.dic_model_names[model_name]), 'wb'))
             total_accuracy = total / numFolds
             print "Accuracy score of {0}: {1}".format(Model.__name__, total_accuracy)
 
@@ -410,8 +418,7 @@ class Radiology_Report_NLP:
             print("\t%s: %r" % (param_name, best_parameters[param_name]))
 
         SGD_grid_pred = clf_grid.predict(self.X_test)
-        pickle.dump(clf_grid, open(self.param.output_path + "/Models/" + self.dic_model_names[model_name],
-                                   "wb"))  ## save the model
+        pickle.dump(clf_grid, open(os.path.join(self.param.output_path, self.folder_models, self.dic_model_names[model_name]), "wb"))  ## save the model
 
         Accuracy_SGD_grid, Precision_SGD_grid, Recall_SGD_grid, F1_Score_XGD_grid, cm_XGD_grid = calc_metrics(
             self.y_test, SGD_grid_pred)
@@ -437,14 +444,13 @@ class Radiology_Report_NLP:
 
         rf_res = Model_results(model_name, Accuracy_rf, Precision_rf, Recall_rf, F1_Score_rf, cm_rf)
 
-        pickle.dump(classifier_RF, open(self.param.output_path + "/Models/" + self.dic_model_names[model_name], 'wb'))
+        pickle.dump(classifier_RF, open(os.path.join(self.param.output_path, self.folder_models, self.dic_model_names[model_name]), 'wb'))
 
         return rf_res
 
     def random_forest_feature_plot(self, rf_classifier):
         ## plot the importance
-        std = np.std([tree.feature_importances_ for tree in rf_classifier.estimators_],
-                     axis=0)
+        std = np.std([tree.feature_importances_ for tree in rf_classifier.estimators_], axis=0)
 
         feats = {}  # a dict to hold feature_name: feature_importance
         for feature, importance, std in zip(self.X_train.columns, rf_classifier.feature_importances_, std):
@@ -491,8 +497,7 @@ class Radiology_Report_NLP:
                            verbose=10, refit=True)
 
         clf.fit(self.X_train, self.y_train)
-        pickle.dump(clf, open(self.param.output_path + "/Models/" + self.dic_model_names[model_name_grid],
-                              "wb"))  ## save the model
+        pickle.dump(clf, open(os.path.join(self.param.output_path, self.folder_models, self.dic_model_names[model_name_grid]), "wb"))  ## save the model
 
         # load model from file
         # loaded_model = pickle.load(open("pima.pickle.dat", "rb"))
@@ -567,8 +572,7 @@ class Radiology_Report_NLP:
         best_xgb_res = Model_results(model_name_best, Accuracy_bestXG, Precision_bestXG, Recall_bestXG, F1_Score_bestXG,
                                      cm_bestXG)
 
-        pickle.dump(mdl_grid_best,
-                    open(self.param.output_path + "/Models/" + self.dic_model_names[model_name_best], "wb"))
+        pickle.dump(mdl_grid_best, open(os.path.join(self.param.output_path, self.folder_models, self.dic_model_names[model_name_best]), "wb"))
 
         if self.param.verbose == 2:
             ## get the top features from the d matrix train method
@@ -647,7 +651,7 @@ class Radiology_Report_NLP:
         #            model_name = "best_xgb.pickle.dat"
         #            xgb_status=True
 
-        model = pickle.load(open(self.param.output_path + "/Models/" + model_name, "rb"))
+        model = pickle.load(open(os.path.join(self.param.output_path, self.folder_models, model_name), "rb"))
 
         if not xgb_status:
             x_apply = self.X_apply
@@ -820,7 +824,7 @@ def main():
     read = Radiology_Report_NLP(param=param)
     read.preprocessing_full()
 
-    if read.param.apply_all == False:
+    if not read.param.apply_all:
         read.run_models()
         #
         df_metrics_res = pd.read_csv(read.param.output_path + '/Metrics_Table.csv')
