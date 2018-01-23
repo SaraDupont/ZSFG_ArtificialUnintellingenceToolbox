@@ -194,10 +194,10 @@ class Radiology_Report_NLP:
             fname_csv_train = 'Word_to_vec_X_Sparse_Matrix_train.csv'
             fname_csv_apply = 'Word_to_vec_X_Sparse_Matrix_apply.csv'
             if not self.param.skip_preprocessing:
-                corpus_train = np.load(os.path.join(self.param.output_path, 'corpus_train.npy')) if os.path.isfile(os.path.join(self.param.output_path, 'corpus_train.npy')) else None
-                corpus_apply = np.load(os.path.join(self.param.output_path, 'corpus_apply.npy')) if os.path.isfile(os.path.join(self.param.output_path, 'corpus_apply.npy')) else None
-                self.X_train, self.text_feature_train = self.report_preprocessing(self.reports_train, vocab_set=0, corpus=corpus_train)
-                self.X_apply, self.text_feature_apply = self.report_preprocessing(self.reports_apply, vocab_set=1, corpus=corpus_apply)
+                # corpus_train = np.load(os.path.join(self.param.output_path, 'corpus_train.npy')) if os.path.isfile(os.path.join(self.param.output_path, 'corpus_train.npy')) else None
+                # corpus_apply = np.load(os.path.join(self.param.output_path, 'corpus_apply.npy')) if os.path.isfile(os.path.join(self.param.output_path, 'corpus_apply.npy')) else None
+                self.X_train, self.text_feature_train = self.report_preprocessing(self.reports_train, vocab_set=0) #, corpus=corpus_train)
+                self.X_apply, self.text_feature_apply = self.report_preprocessing(self.reports_apply, vocab_set=1) #, corpus=corpus_apply)
 
                 self.X_train.to_csv(os.path.join(self.param.output_path, folder_word2vec, fname_csv_train))
                 self.X_apply.to_csv(os.path.join(self.param.output_path, folder_word2vec, fname_csv_apply))
@@ -311,14 +311,14 @@ class Radiology_Report_NLP:
     def run_models(self):
         bayes_res = self.bayes_classifier()
         SGD_res, Logistic_res = self.SGD_Logistic_classifier()
-        SGD_grid_res = self.SGD_Grid_classifier()
+        # SGD_grid_res = self.SGD_Grid_classifier()
         rf_res = self.random_forest_classifier()
-        xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_x_small)
+        # xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_x_small)
 
         #       xgb_res, best_xgb_res = grid_search_xg_boost(self.parameters_large)
 
-        # self.create_metrics_table([xgb_res, best_xgb_res])
-        self.create_metrics_table([bayes_res, SGD_res, Logistic_res, SGD_grid_res, rf_res, xgb_res, best_xgb_res])
+        self.create_metrics_table([bayes_res, SGD_res, Logistic_res, rf_res])
+        # self.create_metrics_table([bayes_res, SGD_res, Logistic_res, SGD_grid_res, rf_res, xgb_res, best_xgb_res])
 
     def bayes_classifier(self):
         # Fitting Naive Bayes to the Training set
@@ -679,9 +679,9 @@ class Radiology_Report_NLP:
         apply_predictions_concat_reports = pd.concat([self.reports_apply, apply_predictions_concat], axis=1)
         ##### check column names while debugging
         #        list(apply_predictions_concat_reports.columns)
-        apply_predictions_concat_reports.columns.values[-3] = 'Prediction Probability'
-        apply_predictions_concat_reports.columns.values[-2] = 'Confidence Category'
-        apply_predictions_concat_reports.columns.values[-1] = 'Osteomyelitis'
+        # apply_predictions_concat_reports.columns.values[-3] = 'Prediction Probability'
+        # apply_predictions_concat_reports.columns.values[-2] = 'Confidence Category'
+        # apply_predictions_concat_reports.columns.values[-1] = 'Osteomyelitis'
 
         if not self.param.apply_all:
             apply_predictions_concat_reports.to_csv(self.param.output_path + "/Predictions.csv", sep=',')
@@ -836,14 +836,17 @@ def main():
 
         if chosen_model not in possible_model_names:
             print "ERROR: wrong model name"
-            chosen_model = "Best XGB"
+            # chosen_model = "Best XGB"
+            chosen_model = 'RandomForest'
             print "Using \"" + chosen_model + "\" as default model."
 
         assert chosen_model in read.dic_model_names.keys(), "ERROR: chosen model not in the model dictionary"
+        # chosen_model='RandomForest'
 
     df_pred_apply = read.apply_model(model=chosen_model)
+    df_pred_apply.to_csv(os.path.join(read.param.output_path, 'prediction_apply.csv'))
 
-    read.get_group_list_accessions(df_pred_apply)
+    # read.get_group_list_accessions(df_pred_apply)
 
 
 if __name__ == "__main__":
