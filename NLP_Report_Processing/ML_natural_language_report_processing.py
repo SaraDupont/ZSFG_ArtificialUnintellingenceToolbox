@@ -311,14 +311,13 @@ class Radiology_Report_NLP:
     def run_models(self):
         bayes_res = self.bayes_classifier()
         SGD_res, Logistic_res = self.SGD_Logistic_classifier()
-        # SGD_grid_res = self.SGD_Grid_classifier()
+        SGD_grid_res = self.SGD_Grid_classifier()
         rf_res = self.random_forest_classifier()
         # xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_x_small)
+        xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_large)
 
-        #       xgb_res, best_xgb_res = grid_search_xg_boost(self.parameters_large)
-
-        self.create_metrics_table([bayes_res, SGD_res, Logistic_res, rf_res])
-        # self.create_metrics_table([bayes_res, SGD_res, Logistic_res, SGD_grid_res, rf_res, xgb_res, best_xgb_res])
+        # self.create_metrics_table([bayes_res, SGD_res, Logistic_res, rf_res])
+        self.create_metrics_table([bayes_res, SGD_res, Logistic_res, SGD_grid_res, rf_res, xgb_res, best_xgb_res])
 
     def bayes_classifier(self):
         # Fitting Naive Bayes to the Training set
@@ -836,8 +835,8 @@ def main():
 
         if chosen_model not in possible_model_names:
             print "ERROR: wrong model name"
-            # chosen_model = "Best XGB"
-            chosen_model = 'RandomForest'
+            chosen_model = "Best XGB"
+            # chosen_model = 'RandomForest'
             print "Using \"" + chosen_model + "\" as default model."
 
         assert chosen_model in read.dic_model_names.keys(), "ERROR: chosen model not in the model dictionary"
