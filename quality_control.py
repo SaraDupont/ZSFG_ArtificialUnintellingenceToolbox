@@ -12,7 +12,7 @@ def get_parser():
                         type=str,
                         dest="type",
                         choices=['fsl', 'jpg'],
-                        required=True)
+                        default='fsl')
     parser.add_argument("-list-paths",
                         help="numpy file containing the list of paths of the images to review.",
                         type=numpy_file,
@@ -80,37 +80,43 @@ def save_2d_images(param):
 
 
 def review_images(param):
-    list_labels = []
-    list_fnames = []
-    list_paths_exist = []
-    for fname in param.list_paths:
-        if os.path.isfile(fname):
-            path_im = '/'.join(fname.split('/')[:-1])
-            fname_im = fname.split('/')[-1]
-            # define fslview command
-            cmd_fslview = 'fslview'
-            if param.fslview_deprecated:
-                cmd_fslview += '_deprecated'
-            cmd_fslview += ' '+fname
-            if param.boundaries_contrast != '':
-                cmd_fslview += ' -b '+param.boundaries_contrast
-            #run fslview
-            s, o = commands.getstatusoutput(cmd_fslview)
-            label = raw_input("Please label the image ("+fname_im+"): ")
-            #
-            # store image name and label
-            list_paths_exist.append(path_im)
-            list_fnames.append(fname_im)
-            list_labels.append(label)
-        else:
-            list_paths_exist.append(fname)
-            list_fnames.append(fname)
-            list_labels.append('-1')
-
     #
-    # save the result as a CSV file
-    df = pd.DataFrame({'path': list_paths_exist, 'fname': list_fnames, 'label': list_labels})
-    df.to_csv(os.path.join(param.ofolder, param.fname_csv))
+    for fname in param.list_paths:
+        fname_processed = False
+        if os.path.isfile(os.path.join(param.ofolder, param.fname_csv)):
+            df_tot = pd.read_csv(os.path.join(param.ofolder, param.fname_csv))
+            list_fname_processed = [os.path.join(df_tot.iloc[i].path, df_tot.iloc[i].fname) for i in range(len(df_tot))]
+            fname_processed = True if fname in list_fname_processed else fname_processed
+        #
+        if not fname_processed:
+            if os.path.isfile(fname):
+                path_im = '/'.join(fname.split('/')[:-1])
+                fname_im = fname.split('/')[-1]
+                # define fslview command
+                cmd_fslview = 'fslview'
+                if param.fslview_deprecated:
+                    cmd_fslview += '_deprecated'
+                cmd_fslview += ' '+fname
+                if param.boundaries_contrast != '':
+                    cmd_fslview += ' -b '+param.boundaries_contrast
+                #run fslview
+                s, o = commands.getstatusoutput(cmd_fslview)
+                label = raw_input("Please label the image ("+fname_im+"): ")
+                #
+            else:
+                path_im = fname
+                fname_im = ''
+                label = -1
+            #
+            df_pat = pd.DataFrame({'path': [path_im], 'fname': [fname_im], 'label': [label]})
+            if os.path.isfile(os.path.join(param.ofolder, param.fname_csv)):
+                df_tot_prev = pd.read_csv(os.path.join(param.ofolder, param.fname_csv))
+                df_tot = df_tot_prev.append(df_pat)
+                df_tot = df_tot.drop('Unnamed: 0', axis=1)
+            else:
+                df_tot = df_pat
+            df_tot.to_csv(os.path.join(param.ofolder, param.fname_csv))
+    #
 
 def main():
     parser = get_parser()
