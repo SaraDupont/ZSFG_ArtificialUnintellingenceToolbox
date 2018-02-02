@@ -111,14 +111,17 @@ def get_parser_classify():
 
 
 class Model_results:
-    def __init__(self, method_name, accuracy, precision, recall, f1_score, cm):
+    def __init__(self, method_name, accuracy, precision, recall, f1_score, cm, label_pred=None, label_true=None):
         self.method_name = method_name
+        #
         self.accuracy = accuracy
         self.precision = precision
         self.recall = recall
         self.f1_score = f1_score
         self.cm = cm
-
+        #
+        self.label_pred = label_pred
+        self.label_true = label_true
 
 class Radiology_Report_NLP:
 
@@ -306,30 +309,36 @@ class Radiology_Report_NLP:
     def split_data(self):
         if not self.param.apply_all:
             self.y_train = self.reports_train[self.param.outcome]
-            self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(self.X_train, self.y_train, test_size=0.30, random_state=0)
+            self.X_train, self.X_valid, self.y_train, self.y_valid, self.reports_train, self.reports_valid = train_test_split(self.X_train, self.y_train, self.reports_train, test_size=0.30, random_state=0)
 
     def run_models(self):
         bayes_res = self.bayes_classifier()
         SGD_res, Logistic_res = self.SGD_Logistic_classifier()
-        SGD_grid_res = self.SGD_Grid_classifier()
+        # SGD_grid_res = self.SGD_Grid_classifier()
         rf_res = self.random_forest_classifier()
         # xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_x_small)
-        xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_large)
+        # xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_large)
 
-        # self.create_metrics_table([bayes_res, SGD_res, Logistic_res, rf_res])
-        self.create_metrics_table([bayes_res, SGD_res, Logistic_res, SGD_grid_res, rf_res, xgb_res, best_xgb_res])
+        list_res = [bayes_res, SGD_res, Logistic_res, rf_res]
+        # list_res = [bayes_res, SGD_res, Logistic_res, SGD_grid_res, rf_res, xgb_res, best_xgb_res]
+        for res in list_res:
+            pickle.dump(res, open(os.path.join(self.param.output_path, self.folder_models, res.method_name+'.pkl'), 'wb'))
+        pickle.dump((self.X_valid, self.y_valid), open(os.path.join(self.param.output_path, self.folder_models, 'X_y_valid.pkl'), 'wb'))
+        pickle.dump(self.reports_valid, open(os.path.join(self.param.output_path, self.folder_models, 'reports_valid.pkl'), 'wb'))
+
+        self.create_metrics_table(list_res)
 
     def bayes_classifier(self):
         # Fitting Naive Bayes to the Training set
         model_name = 'Bayesian'
         classifier_GNB = GaussianNB()
         classifier_GNB.fit(self.X_train, self.y_train)
-        bayes_prediction = classifier_GNB.predict(self.X_test)
+        bayes_prediction = classifier_GNB.predict(self.X_valid)
 
-        Accuracy_bayes, Precision_bayes, Recall_bayes, F1_Score_bayes, cm_bayes = calc_metrics(self.y_test,
+        Accuracy_bayes, Precision_bayes, Recall_bayes, F1_Score_bayes, cm_bayes = calc_metrics(self.y_valid,
                                                                                                bayes_prediction)
 
-        bayes_res = Model_results(model_name, Accuracy_bayes, Precision_bayes, Recall_bayes, F1_Score_bayes, cm_bayes)
+        bayes_res = Model_results(model_name, Accuracy_bayes, Precision_bayes, Recall_bayes, F1_Score_bayes, cm_bayes, label_pred=bayes_prediction, label_true=self.y_valid)
 
         pickle.dump(classifier_GNB, open(os.path.join(self.param.output_path, self.folder_models, self.dic_model_names[model_name]), 'wb'))
 
@@ -346,8 +355,7 @@ class Radiology_Report_NLP:
         params = [{}, {"loss": "log", "penalty": "l2", 'max_iter': 1000}]
         model_names = ['Logistic', 'SGD']
 
-        accuracy, precision, recall, f1_score, cm = [0] * len(Models), [0] * len(Models), [0] * len(Models), [0] * len(
-            Models), [0] * len(Models)
+        accuracy, precision, recall, f1_score, cm, fitted_models = [0] * len(Models), [0] * len(Models), [0] * len(Models), [0] * len( Models), [0] * len(Models), [None]*len(Models)
 
         for i, (param, Model, model_name) in enumerate(zip(params, Models, model_names)):
             total = 0
@@ -361,6 +369,8 @@ class Radiology_Report_NLP:
                 reg.fit(train_X, train_Y)
                 predictions = reg.predict(test_X)
 
+                #
+                fitted_models[i] = reg
                 model_accuracy, model_precision, model_recall, model_f1, model_cm = calc_metrics(test_Y, predictions)
 
                 accuracy[i] += model_accuracy
@@ -386,10 +396,10 @@ class Radiology_Report_NLP:
         model_name_log = 'Logistic'
         model_name_sgd = 'SGD'
         i_log, i_sgd = 0, 1
-        Logistic_res = Model_results(model_names[i_log], accuracy[i_log], precision[i_log], recall[i_log],
-                                     f1_score[i_log], cm[i_log])
-        SGD_res = Model_results(model_names[i_sgd], accuracy[i_sgd], precision[i_sgd], recall[i_sgd], f1_score[i_sgd],
-                                cm[i_sgd])
+        pred_log = fitted_models[i_log].predict(self.X_valid)
+        pred_sgd = fitted_models[i_sgd].predict(self.X_valid)
+        Logistic_res = Model_results(model_names[i_log], accuracy[i_log], precision[i_log], recall[i_log], f1_score[i_log], cm[i_log], label_true = self.y_valid, label_pred=pred_log)
+        SGD_res = Model_results(model_names[i_sgd], accuracy[i_sgd], precision[i_sgd], recall[i_sgd], f1_score[i_sgd], cm[i_sgd], label_true = self.y_valid, label_pred=pred_sgd)
 
         return SGD_res, Logistic_res
 
@@ -416,14 +426,13 @@ class Radiology_Report_NLP:
         for param_name in sorted(parameters.keys()):
             print("\t%s: %r" % (param_name, best_parameters[param_name]))
 
-        SGD_grid_pred = clf_grid.predict(self.X_test)
+        SGD_grid_pred = clf_grid.predict(self.X_valid)
         pickle.dump(clf_grid, open(os.path.join(self.param.output_path, self.folder_models, self.dic_model_names[model_name]), "wb"))  ## save the model
 
         Accuracy_SGD_grid, Precision_SGD_grid, Recall_SGD_grid, F1_Score_XGD_grid, cm_XGD_grid = calc_metrics(
-            self.y_test, SGD_grid_pred)
+            self.y_valid, SGD_grid_pred)
 
-        SGD_grid_res = Model_results(model_name, Accuracy_SGD_grid, Precision_SGD_grid, Recall_SGD_grid,
-                                     F1_Score_XGD_grid, cm_XGD_grid)
+        SGD_grid_res = Model_results(model_name, Accuracy_SGD_grid, Precision_SGD_grid, Recall_SGD_grid, F1_Score_XGD_grid, cm_XGD_grid, label_true=self.y_valid, label_pred=SGD_grid_pred)
 
         return SGD_grid_res
 
@@ -437,11 +446,11 @@ class Radiology_Report_NLP:
             self.random_forest_feature_plot(classifier_RF)
 
         # Predicting the Test set results
-        RF_prediction = classifier_RF.predict(self.X_test)
+        RF_prediction = classifier_RF.predict(self.X_valid)
 
-        Accuracy_rf, Precision_rf, Recall_rf, F1_Score_rf, cm_rf = calc_metrics(self.y_test, RF_prediction)
+        Accuracy_rf, Precision_rf, Recall_rf, F1_Score_rf, cm_rf = calc_metrics(self.y_valid, RF_prediction)
 
-        rf_res = Model_results(model_name, Accuracy_rf, Precision_rf, Recall_rf, F1_Score_rf, cm_rf)
+        rf_res = Model_results(model_name, Accuracy_rf, Precision_rf, Recall_rf, F1_Score_rf, cm_rf, label_true=self.y_valid, label_pred=RF_prediction)
 
         pickle.dump(classifier_RF, open(os.path.join(self.param.output_path, self.folder_models, self.dic_model_names[model_name]), 'wb'))
 
@@ -486,7 +495,7 @@ class Radiology_Report_NLP:
         model_name_best = 'Best XGB'
 
         xgdmat_train = xgb.DMatrix(self.X_train, self.y_train)
-        xgdmat_test = xgb.DMatrix(self.X_test, self.y_test)
+        xgdmat_test = xgb.DMatrix(self.X_valid, self.y_valid)
 
         xgb_model = xgb.XGBClassifier()
 
@@ -508,7 +517,7 @@ class Radiology_Report_NLP:
         for param_name in sorted(best_parameters.keys()):
             print("%s: %r" % (param_name, best_parameters[param_name]))
 
-        predictions = clf.predict(self.X_test)
+        predictions = clf.predict(self.X_valid)
 
         #
 
@@ -557,8 +566,8 @@ class Radiology_Report_NLP:
         #    print(df.sort_values(by='fscore', ascending=False))
 
         ## grid search xgboost for best parameters  (to get the best accuracy)
-        Accuracy_XGB, Precision_XGB, Recall_XGB, F1_Score_XGB, cm_XGB = calc_metrics(self.y_test, predictions)
-        xgb_res = Model_results(model_name_grid, Accuracy_XGB, Precision_XGB, Recall_XGB, F1_Score_XGB, cm_XGB)
+        Accuracy_XGB, Precision_XGB, Recall_XGB, F1_Score_XGB, cm_XGB = calc_metrics(self.y_valid, predictions)
+        xgb_res = Model_results(model_name_grid, Accuracy_XGB, Precision_XGB, Recall_XGB, F1_Score_XGB, cm_XGB, y_true = self.y_valid, y_pred = predictions)
 
         num_rounds = 1000
 
@@ -566,10 +575,9 @@ class Radiology_Report_NLP:
         y_pred_best_grid = mdl_grid_best.predict(xgdmat_test)
         y_pred_best_grid = np.where(y_pred_best_grid > 0.5, 1, 0)
 
-        Accuracy_bestXG, Precision_bestXG, Recall_bestXG, F1_Score_bestXG, cm_bestXG = calc_metrics(self.y_test,
+        Accuracy_bestXG, Precision_bestXG, Recall_bestXG, F1_Score_bestXG, cm_bestXG = calc_metrics(self.y_valid,
                                                                                                     y_pred_best_grid)
-        best_xgb_res = Model_results(model_name_best, Accuracy_bestXG, Precision_bestXG, Recall_bestXG, F1_Score_bestXG,
-                                     cm_bestXG)
+        best_xgb_res = Model_results(model_name_best, Accuracy_bestXG, Precision_bestXG, Recall_bestXG, F1_Score_bestXG, cm_bestXG, y_true=self.y_valid, y_pred=y_pred_best_grid)
 
         pickle.dump(mdl_grid_best, open(os.path.join(self.param.output_path, self.folder_models, self.dic_model_names[model_name_best]), "wb"))
 
