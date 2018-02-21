@@ -146,7 +146,7 @@ class Radiology_Report_NLP:
                                  'silent': [1],
                                  'subsample': [0.6, 0.7, 0.8, 0.9],
                                  'colsample_bytree': [0.6, 0.7],
-                                 'n_estimators': [100],  # number of trees, change it to 1000 for better results
+                                 'n_estimators': [1000],  # number of trees, change it to 1000 for better results
                                  'missing': [-999],
                                  'seed': [1337]}
 
@@ -219,12 +219,13 @@ class Radiology_Report_NLP:
         self.split_data()
 
     def define_apply_data(self):
+        self.reports = self.drop_columns(self.reports)
+        # remove NAN impressions
+        self.reports = self.reports.dropna(axis=0, how='any')
+
         if not self.param.apply_all:
             if not np.isnan(self.param.exclude_label):
                 self.reports = self.reports.drop(self.reports[self.reports[self.param.outcome] == int(self.param.exclude_label)].index)
-            self.reports = self.drop_columns(self.reports)
-            # remove NAN impressions
-            self.reports = self.reports.dropna(axis=0, how='any')
 
             if np.isnan(self.param.apply_label):
                 self.reports_apply = self.reports[self.reports[self.param.outcome].isnull()]
@@ -314,7 +315,8 @@ class Radiology_Report_NLP:
         SGD_grid_res = self.SGD_Grid_classifier()
         rf_res = self.random_forest_classifier()
         # xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_x_small)
-        xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_large)
+        xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_small)
+        # xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_large)
 
         # self.create_metrics_table([bayes_res, SGD_res, Logistic_res, rf_res])
         self.create_metrics_table([bayes_res, SGD_res, Logistic_res, SGD_grid_res, rf_res, xgb_res, best_xgb_res])
@@ -823,6 +825,7 @@ def main():
     read = Radiology_Report_NLP(param=param)
     read.preprocessing_full()
 
+    model_default = "Best XGB"
     if not read.param.apply_all:
         read.run_models()
         #
@@ -835,13 +838,15 @@ def main():
 
         if chosen_model not in possible_model_names:
             print "ERROR: wrong model name"
-            chosen_model = "Best XGB"
+            chosen_model = model_default
             # chosen_model = 'RandomForest'
             print "Using \"" + chosen_model + "\" as default model."
 
         assert chosen_model in read.dic_model_names.keys(), "ERROR: chosen model not in the model dictionary"
         # chosen_model='RandomForest'
 
+    else:
+        chosen_model = model_default
     df_pred_apply = read.apply_model(model=chosen_model)
     df_pred_apply.to_csv(os.path.join(read.param.output_path, 'prediction_apply.csv'))
 
