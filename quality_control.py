@@ -18,6 +18,16 @@ def get_parser():
                         type=numpy_file,
                         dest="list_paths",
                         default="")
+    parser.add_argument("-list-suffix",
+                        help="List of suffix for files to add to the file to review. (separated by coma)",
+                        type=to_list,
+                        dest="list_suffix",
+                        default="")
+    parser.add_argument("-list-col",
+                        help="List of fslview colors for files to add to the file to review. (separated by coma)",
+                        type=to_list,
+                        dest="list_col",
+                        default="")
     parser.add_argument("-ofolder",
                         help="Folder to output the JPEG images (jpg) ot CSV file with assigned labels (fsl)",
                         type=create_folder,
@@ -33,11 +43,12 @@ def get_parser():
                         type=str,
                         dest="boundaries_contrast",
                         default="")
-    parser.add_argument('-dep',
-                        help="Is fslview deprecated on your machine ?",
-                        type=bool,
-                        dest="fslview_deprecated",
-                        default=True)
+    parser.add_argument('-fsl',
+                        help="Is fslview deprecated on your machine ? is it fsleyes ?",
+                        type=str,
+                        dest="fsl_type",
+                        choices=['view', 'dep', 'eyes'],
+                        default='dep')
 
 
     return parser
@@ -57,6 +68,10 @@ def numpy_file(fname):
         list_paths = None
         pass
     return list_paths
+
+def to_list(str, sep=','):
+    return str.split(sep)
+
 
 def save_2d_images(param):
     for fname in param.list_paths:
@@ -93,19 +108,32 @@ def review_images(param):
                 path_im = '/'.join(fname.split('/')[:-1])
                 fname_im = fname.split('/')[-1]
                 # define fslview command
-                cmd_fslview = 'fslview'
-                if param.fslview_deprecated:
+                if param.fsl_type in ['view', 'dep']:
+                    cmd_fslview = 'fslview'
+                else:
+                    cmd_fslview = 'fsleyes'
+                if param.fsl_type == 'dep':
                     cmd_fslview += '_deprecated'
                 cmd_fslview += ' '+fname
                 if param.boundaries_contrast != '':
-                    cmd_fslview += ' -b '+param.boundaries_contrast
+                    flag = ' -b ' if param.fsl_type in ['view', 'dep'] else ' -dr '
+                    param.boundaries_contrast = ' '.join(param.boundaries_contrast.split(',')) if param.fsl_type == 'eyes' else param.boundaries_contrast
+                    cmd_fslview += flag+param.boundaries_contrast
+                if param.list_suffix != ['']:
+                    for i, suffix in enumerate(param.list_suffix):
+                        file_im = fname.split('.')[0]
+                        fname_add = file_im+suffix
+                        cmd_fslview += ' ' + fname_add
+                        if i<len(param.list_col):
+                            cmd_fslview += ' -t 0.5 -l ' +param.list_col[i]
                 #run fslview
+                print cmd_fslview
                 s, o = commands.getstatusoutput(cmd_fslview)
                 label = raw_input("Please label the image ("+fname_im+"): ")
                 #
             else:
-                path_im = fname
-                fname_im = ''
+                path_im = fname if fname != '' else '--'
+                fname_im = '--'
                 label = -1
             #
             df_pat = pd.DataFrame({'path': [path_im], 'fname': [fname_im], 'label': [label]})
