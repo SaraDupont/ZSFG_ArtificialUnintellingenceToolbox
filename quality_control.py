@@ -13,6 +13,12 @@ def get_parser():
                         dest="type",
                         choices=['fsl', 'jpg'],
                         default='fsl')
+    parser.add_argument("-type-list",
+                        help="type of list in the list_paths (default: files)",
+                        type=str,
+                        dest="type_list",
+                        choices=['files', 'cmd'],
+                        default='files')
     parser.add_argument("-list-paths",
                         help="numpy file containing the list of paths of the images to review.",
                         type=numpy_file,
@@ -146,6 +152,35 @@ def review_images(param):
             df_tot.to_csv(os.path.join(param.ofolder, param.fname_csv))
     #
 
+
+def review_images_cmd(param):
+    #
+    for cmd in param.list_paths:
+        cmd_already_labeled = False
+        if os.path.isfile(os.path.join(param.ofolder, param.fname_csv)):
+            df_tot = pd.read_csv(os.path.join(param.ofolder, param.fname_csv))
+            for cmd_done in df_tot.cmd:
+                cmd_already_labeled = True if cmd == cmd_done else cmd_already_labeled
+        #
+        if not cmd_already_labeled:
+            #run fslview
+            print cmd
+            s, o = commands.getstatusoutput(cmd)
+            label = raw_input("Please label the image : ")
+            #
+            if s != 0:
+                label = -1
+            #
+            df_pat = pd.DataFrame({'cmd': [cmd], 'label': [label]})
+            if os.path.isfile(os.path.join(param.ofolder, param.fname_csv)):
+                df_tot_prev = pd.read_csv(os.path.join(param.ofolder, param.fname_csv))
+                df_tot = df_tot_prev.append(df_pat)
+                df_tot = df_tot.drop('Unnamed: 0', axis=1)
+            else:
+                df_tot = df_pat
+            df_tot.to_csv(os.path.join(param.ofolder, param.fname_csv))
+    #
+
 def main():
     parser = get_parser()
     param = parser.parse_args()
@@ -153,7 +188,10 @@ def main():
     if param.type == 'jpg':
         save_2d_images(param)
     elif param.type == 'fsl':
-        review_images(param)
+        if param.type_list == 'files':
+            review_images(param)
+        else:
+            review_images_cmd(param)
 
 
 if __name__=="__main__":
