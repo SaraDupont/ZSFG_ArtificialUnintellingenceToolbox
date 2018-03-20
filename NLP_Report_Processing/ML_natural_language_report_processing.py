@@ -12,6 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import re
+import shutil
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
@@ -97,6 +98,11 @@ def get_parser_classify():
                         type=bool,
                         dest="apply_all",
                         default=False)
+    parser.add_argument("-no-apply",
+                        help="Don't apply the model to the testing set",
+                        type=bool,
+                        dest="no_apply",
+                        default=False)
     parser.add_argument("-skip-preprocessing",
                         help="skip preprocessing and text cleaning and use saved sparse matrix",
                         type=bool,
@@ -104,11 +110,15 @@ def get_parser_classify():
                         default=False)
     parser.add_argument("-max-ngrams",
                         help="maximum number of ngram (adjacent words) in preprocessing",
-                        type=int,
+                        type=to_list,
                         dest="max_ngrams",
                         default=1)
     return parser
 
+def to_list(l):
+    str_l = l.split(',')
+    int_l = [int(e) for e in str_l]
+    return int_l
 
 class Model_results:
     def __init__(self, method_name, accuracy, precision, recall, f1_score, cm, label_pred=None, label_true=None):
@@ -127,6 +137,7 @@ class Radiology_Report_NLP:
 
     def __init__(self, param):
         self.param = param
+        self.i_ngrams=0
         self.confidence_labels = ('high confidence negative', 'medium confidence positive', 'high confidence positive')
         self.parameters_large = {'nthread': [2, 3, 4, 5],  # when use hyperthread, xgboost may become slower
                                  'objective': ['binary:logistic'],
@@ -165,6 +176,18 @@ class Radiology_Report_NLP:
                                    'missing': [-999],
                                    'seed': [1337]}
 
+        self.parameters_best = {'colsample_bytree': 0.6,
+                                'silent': 1,
+                                'missing': -999,
+                                'learning_rate': 0.01,
+                                'nthread': 2,
+                                'min_child_weight': 3,
+                                'n_estimators': 1000,
+                                'subsample': 0.9,
+                                'seed': 1337,
+                                'objective': 'binary:logistic',
+                                'max_depth': 2}
+
         if '.xls' in self.param.data_name:
             self.reports = pd.read_excel(os.path.join(self.param.data_path, self.param.data_name), header=0)
         elif '.csv' in self.param.data_name:
@@ -174,8 +197,6 @@ class Radiology_Report_NLP:
             self.reports = None
 
         self.folder_models = 'Models'
-        if not os.path.isdir(os.path.join(self.param.output_path, self.folder_models)):
-            os.mkdir(os.path.join(self.param.output_path, self.folder_models))
 
         self.dic_model_names = {
             'Bayesian': 'bayes_model.sav',
@@ -187,6 +208,8 @@ class Radiology_Report_NLP:
             'Best XGB': 'best_xgb.pickle.dat'}
 
     def preprocessing_full(self):
+        if not os.path.isdir(os.path.join(self.param.output_path, self.folder_models)):
+            os.mkdir(os.path.join(self.param.output_path, self.folder_models))
         # define data
         self.define_apply_data()
         folder_word2vec = 'Word2Vec'
@@ -197,10 +220,19 @@ class Radiology_Report_NLP:
             fname_csv_train = 'Word_to_vec_X_Sparse_Matrix_train.csv'
             fname_csv_apply = 'Word_to_vec_X_Sparse_Matrix_apply.csv'
             if not self.param.skip_preprocessing:
-                # corpus_train = np.load(os.path.join(self.param.output_path, 'corpus_train.npy')) if os.path.isfile(os.path.join(self.param.output_path, 'corpus_train.npy')) else None
-                # corpus_apply = np.load(os.path.join(self.param.output_path, 'corpus_apply.npy')) if os.path.isfile(os.path.join(self.param.output_path, 'corpus_apply.npy')) else None
-                self.X_train, self.text_feature_train = self.report_preprocessing(self.reports_train, vocab_set=0) #, corpus=corpus_train)
-                self.X_apply, self.text_feature_apply = self.report_preprocessing(self.reports_apply, vocab_set=1) #, corpus=corpus_apply)
+                parent_folder = '/'.join(self.param.output_path.split('/')[:-1])
+
+                path_corpus = parent_folder if len(self.param.max_ngrams)>1 else self.param.output_path
+
+                corpus_train = np.load(os.path.join(path_corpus, 'corpus_train.npy')) if os.path.isfile(os.path.join(path_corpus, 'corpus_train.npy')) else None
+                corpus_apply = np.load(os.path.join(path_corpus, 'corpus_apply.npy')) if os.path.isfile(os.path.join(path_corpus, 'corpus_apply.npy')) else None
+                self.X_train, self.text_feature_train, corpus_train_new = self.report_preprocessing(self.reports_train, vocab_set=0, corpus=corpus_train)
+                self.X_apply, self.text_feature_apply, corpus_apply_new = self.report_preprocessing(self.reports_apply, vocab_set=1, corpus=corpus_apply)
+
+                if corpus_train is None:
+                    np.save(os.path.join(path_corpus, 'corpus_train.npy'), corpus_train_new)
+                if corpus_apply is None:
+                    np.save(os.path.join(path_corpus, 'corpus_apply.npy'), corpus_apply_new)
 
                 self.X_train.to_csv(os.path.join(self.param.output_path, folder_word2vec, fname_csv_train))
                 self.X_apply.to_csv(os.path.join(self.param.output_path, folder_word2vec, fname_csv_apply))
@@ -219,6 +251,9 @@ class Radiology_Report_NLP:
             else:
                 self.X_apply = pd.read_csv(os.path.join(self.param.output_path, folder_word2vec, fname_csv_full))
         #
+        if 'Unnamed: 0' in self.X_apply.columns:
+            self.X_apply = self.X_apply.drop('Unnamed: 0', axis=1)
+
         self.split_data()
 
     def define_apply_data(self):
@@ -288,7 +323,7 @@ class Radiology_Report_NLP:
                 corpus.append(review)
 
         if vocab_set == 0:
-            cv = CountVectorizer(max_features=self.param.number_word_features, ngram_range=(1, self.param.max_ngrams))
+            cv = CountVectorizer(max_features=self.param.number_word_features, ngram_range=(1, self.param.max_ngrams[self.i_ngrams]))
             X = cv.fit_transform(corpus).toarray()
             self.vocabulary = cv.vocabulary_
             # save to pickle
@@ -297,7 +332,7 @@ class Radiology_Report_NLP:
             pickle_out.close()
 
         else:
-            cv = CountVectorizer(vocabulary=self.vocabulary, ngram_range=(1, self.param.max_ngrams))
+            cv = CountVectorizer(vocabulary=self.vocabulary, ngram_range=(1, self.param.max_ngrams[self.i_ngrams]))
             X = cv.fit_transform(corpus).toarray()
 
         text_features = cv.get_feature_names()
@@ -305,7 +340,7 @@ class Radiology_Report_NLP:
         X = pd.DataFrame(X)
         X.columns = text_features
 
-        return X, text_features
+        return X, text_features, corpus
 
     def split_data(self):
         if not self.param.apply_all:
@@ -321,8 +356,8 @@ class Radiology_Report_NLP:
         xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_small)
         # xgb_res, best_xgb_res, self.model = self.grid_search_xg_boost(self.parameters_large)
 
-        list_res = [bayes_res, SGD_res, Logistic_res, rf_res]
-        # list_res = [bayes_res, SGD_res, Logistic_res, SGD_grid_res, rf_res, xgb_res, best_xgb_res]
+        # list_res = [bayes_res, SGD_res, Logistic_res, rf_res]
+        list_res = [bayes_res, SGD_res, Logistic_res, SGD_grid_res, rf_res, xgb_res, best_xgb_res]
         for res in list_res:
             pickle.dump(res, open(os.path.join(self.param.output_path, self.folder_models, res.method_name+'.pkl'), 'wb'))
         pickle.dump((self.X_valid, self.y_valid), open(os.path.join(self.param.output_path, self.folder_models, 'X_y_valid.pkl'), 'wb'))
@@ -569,7 +604,7 @@ class Radiology_Report_NLP:
 
         ## grid search xgboost for best parameters  (to get the best accuracy)
         Accuracy_XGB, Precision_XGB, Recall_XGB, F1_Score_XGB, cm_XGB = calc_metrics(self.y_valid, predictions)
-        xgb_res = Model_results(model_name_grid, Accuracy_XGB, Precision_XGB, Recall_XGB, F1_Score_XGB, cm_XGB, y_true = self.y_valid, y_pred = predictions)
+        xgb_res = Model_results(model_name_grid, Accuracy_XGB, Precision_XGB, Recall_XGB, F1_Score_XGB, cm_XGB, label_true=self.y_valid, label_pred=predictions)
 
         num_rounds = 1000
 
@@ -579,7 +614,7 @@ class Radiology_Report_NLP:
 
         Accuracy_bestXG, Precision_bestXG, Recall_bestXG, F1_Score_bestXG, cm_bestXG = calc_metrics(self.y_valid,
                                                                                                     y_pred_best_grid)
-        best_xgb_res = Model_results(model_name_best, Accuracy_bestXG, Precision_bestXG, Recall_bestXG, F1_Score_bestXG, cm_bestXG, y_true=self.y_valid, y_pred=y_pred_best_grid)
+        best_xgb_res = Model_results(model_name_best, Accuracy_bestXG, Precision_bestXG, Recall_bestXG, F1_Score_bestXG, cm_bestXG, label_true=self.y_valid, label_pred=y_pred_best_grid)
 
         pickle.dump(mdl_grid_best, open(os.path.join(self.param.output_path, self.folder_models, self.dic_model_names[model_name_best]), "wb"))
 
@@ -643,24 +678,24 @@ class Radiology_Report_NLP:
         ## save the results
         df_metrics.to_csv(self.param.output_path + '/Metrics_Table.csv', sep=',')
 
-    def apply_model(self, model):
+    def apply_model(self, model_name):
         #        xgb_status=False
 
-        model_name = self.dic_model_names[model]
-        xgb_status = True if model == "Best XGB" else False
+        fname_model = self.dic_model_names[model_name]
+        xgb_status = True if model_name == "Best XGB" else False
         #        if model == "Bayesian" :
-        #            model_name = 'bayes_model.sav'
+        #            fname_model = 'bayes_model.sav'
         #        if model == "RandomForest" :
-        #            model_name = 'random_forest_model.sav'
+        #            fname_model = 'random_forest_model.sav'
         #        if model == "Gridsearch XGB" :
-        #            model_name = "pima.pickle.dat"
+        #            fname_model = "pima.pickle.dat"
         #        if model == "SGD" :
-        #            model_name = "SGD_model.sav"
+        #            fname_model = "SGD_model.sav"
         #        if model == "Best XGB":
-        #            model_name = "best_xgb.pickle.dat"
+        #            fname_model = "best_xgb.pickle.dat"
         #            xgb_status=True
 
-        model = pickle.load(open(os.path.join(self.param.output_path, self.folder_models, model_name), "rb"))
+        model = pickle.load(open(os.path.join(self.param.output_path, self.folder_models, fname_model), "rb"))
 
         if not xgb_status:
             x_apply = self.X_apply
@@ -831,32 +866,44 @@ def main():
     parser = get_parser_classify()
     param = parser.parse_args()
     read = Radiology_Report_NLP(param=param)
-    read.preprocessing_full()
+    output_path_original = param.output_path
 
-    model_default = "Best XGB"
-    if not read.param.apply_all:
-        read.run_models()
+    for i_ngrams in range(len(param.max_ngrams)):
+        if len(param.max_ngrams)>1:
+            read.param.output_path = os.path.join(output_path_original, 'max_ngrams_'+str(param.max_ngrams[i_ngrams]))
+            if not os.path.isdir(read.param.output_path):
+                os.mkdir(read.param.output_path)
+        read.i_ngrams = i_ngrams
         #
-        df_metrics_res = pd.read_csv(read.param.output_path + '/Metrics_Table.csv')
-        print "Validation metrics of the trained models: "
-        print df_metrics_res
-        possible_model_names = [str(model) for model in df_metrics_res.columns[1:]]
-        display_model_names = 'Choose between the following models: ' + ', '.join(possible_model_names) + '\n--> '
-        chosen_model = raw_input(display_model_names)
+        read.preprocessing_full()
 
-        if chosen_model not in possible_model_names:
-            print "ERROR: wrong model name"
+        model_default = "Best XGB"
+
+        if not read.param.apply_all:
+            read.run_models()
+            #
+            df_metrics_res = pd.read_csv(read.param.output_path + '/Metrics_Table.csv')
+            print "Validation metrics of the trained models: "
+            print df_metrics_res
+            possible_model_names = [str(model) for model in df_metrics_res.columns[1:]]
+            display_model_names = 'Choose between the following models: ' + ', '.join(possible_model_names) + '\n--> '
+            chosen_model = raw_input(display_model_names)
+
+            if chosen_model not in possible_model_names:
+                print "ERROR: wrong model name"
+                chosen_model = model_default
+                # chosen_model = 'RandomForest'
+                print "Using \"" + chosen_model + "\" as default model."
+
+            assert chosen_model in read.dic_model_names.keys(), "ERROR: chosen model not in the model dictionary"
+            # chosen_model='RandomForest'
+
+        else:
             chosen_model = model_default
-            # chosen_model = 'RandomForest'
-            print "Using \"" + chosen_model + "\" as default model."
 
-        assert chosen_model in read.dic_model_names.keys(), "ERROR: chosen model not in the model dictionary"
-        # chosen_model='RandomForest'
-
-    else:
-        chosen_model = model_default
-    df_pred_apply = read.apply_model(model=chosen_model)
-    df_pred_apply.to_csv(os.path.join(read.param.output_path, 'prediction_apply.csv'))
+    if not param.no_apply:
+        df_pred_apply = read.apply_model(model_name=chosen_model)
+        df_pred_apply.to_csv(os.path.join(read.param.output_path, 'prediction_apply.csv'))
 
     # read.get_group_list_accessions(df_pred_apply)
 
