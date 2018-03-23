@@ -18,6 +18,7 @@ from keras import backend as K
 import pandas as pd
 from skimage.transform import resize
 import commands
+import saliency
 
 FLAGS = tf.app.flags.FLAGS
 FLAGS.num_class = 2
@@ -86,7 +87,7 @@ def get_parser():
                         help="Number of epochs to run the network.",
                         type=int,
                         dest="epochs",
-                        default=1000)
+                        default=5000)
     parser.add_argument("-batch-size",
                     help="Size of batches that make up each epoch.",
                     type=int,
@@ -135,46 +136,62 @@ class Hemorrhage_Classification():
         self.list_test_subjects = []
         self.list_test_subjects_labels = []
         K.set_image_data_format('channels_last')  # defined as b/w images throughout
-        self.sess = tf.InteractiveSession(config=tf.ConfigProto(log_device_placement=True))
+        self.sess = tf.InteractiveSession(config=tf.ConfigProto(log_device_placement=False))
         self.x_ = tf.placeholder(tf.float32, shape=[None, self.param.im_size*self.param.im_size*self.param.im_depth]) # [None, 28*28]
         self.y_ = tf.placeholder(tf.float32, shape=[None, self.param.nlabel])  # [None, 10]
-        self.log_path = "/home/mccoyd2/Documents/ZSFG_ArtificialUnintellingenceToolbox/Medical_Image_3D_CNN_Classification"
+        self.log_path = "/media/mccoyd2/hamburger/Hemorrhage_Study/logs"
         self.test_accuracy_list = []
         # Include keep_prob in feed_dict to control dropout rate.
     def run_model(self):
-        summary_writer = tf.summary.FileWriter(self.param.path+"/logs/training", self.sess.graph)
-        summary_writer2 = tf.summary.FileWriter(self.param.path+"/logs/validation", self.sess.graph)
-        summary_writer3 = tf.summary.FileWriter(self.param.path+"/logs/testing", self.sess.graph)
 
+        writer_train = tf.summary.FileWriter(self.log_path+"/accuracy/training")
+        writer_val = tf.summary.FileWriter(self.log_path+"/accuracy/validation")
 
-        training_summary = tf.summary.scalar("training_accuracy", self.accuracy)
-        validation_summary = tf.summary.scalar("validation_accuracy", self.accuracy)
-        test_summary = tf.summary.scalar("test_accuracy", self.accuracy)
+        # training_summary = tf.summary.scalar("training_accuracy", self.accuracy)
+        # validation_summary = tf.summary.scalar("validation_accuracy", self.accuracy)
+
+        tf.summary.scalar("accuracy", self.accuracy)
+        write_op = tf.summary.merge_all()
 
         for i in range(self.param.epochs):
-
+            if self.batch_index_train == 0:
+                self.list_subj_train = np.array(self.list_subj_train)
+                shuffle_ind = np.arange(len(self.list_subj_train))
+                np.random.shuffle(shuffle_ind)
+                self.list_subj_train = self.list_subj_train[shuffle_ind]
+                self.list_subj_train_labels = self.list_subj_train_labels[shuffle_ind]
+                #
             batch_train = self.get_CT_data(self.list_subj_train, self.list_subj_train_labels, self.batch_index_train)
             self.batch_index_train = batch_train[2]
             print("Training batch %d is loaded"%(i))
+            if self.batch_index_valid == 0:
+                self.list_subj_valid = np.array(self.list_subj_valid)
+                shuffle_ind = np.arange(len(self.list_subj_valid))
+                np.random.shuffle(shuffle_ind)
+                self.list_subj_valid = self.list_subj_valid[shuffle_ind]
+                self.list_subj_valid_labels = self.list_subj_valid_labels[shuffle_ind]
+                #
             batch_validation = self.get_CT_data(self.list_subj_valid, self.list_subj_valid_labels, self.batch_index_valid)
             self.batch_index_valid = batch_validation[2]
             print("Validation batch %d is loaded"%(i))
             # Logging every 100th iteration in the training process.
             if i%2 == 0:
                 #train_accuracy = self.accuracy.eval(feed_dict={self.x_:batch_train[0], self.y_: batch_train[1], self.keep_prob: 1.0})
-                train_accuracy, train_summary = self.sess.run([self.accuracy, training_summary], feed_dict={self.x_:batch_train[0], self.y_: batch_train[1], self.keep_prob: 1.0})
-                summary_writer.add_summary(train_summary, i)
+                train_accuracy, train_summary, cross_entropy = self.sess.run([self.accuracy, write_op, self.cross_entropy], feed_dict={self.x_:batch_train[0], self.y_: batch_train[1], self.keep_prob: 1.0})
+                writer_train.add_summary(train_summary, i)
+                writer_train.flush()
 
+                valid_accuracy, valid_summary = self.sess.run([self.accuracy, write_op], feed_dict={self.x_:batch_validation[0], self.y_: batch_validation[1], self.keep_prob: 1.0})
+                writer_val.add_summary(valid_summary, i)
+                writer_val.flush()
 
-                valid_accuracy, valid_summary = self.sess.run([self.accuracy, validation_summary], feed_dict={self.x_:batch_validation[0], self.y_: batch_validation[1], self.keep_prob: 1.0})
-                summary_writer2.add_summary(valid_summary, i)
-
-                print("step %d, training accuracy %g, validation accuracy %g"%(i, train_accuracy,valid_accuracy))
+                print("step %d, training accuracy: %g, validation accuracy: %g, training cross entropy: %g"%(i, train_accuracy,valid_accuracy,cross_entropy))
 
                 if i > 50:
                     if valid_accuracy <= 0.5:
                         print batch_validation[3]
-            self.train_step.run(feed_dict={self.x_: batch_train[0], self.y_: batch_train[1], self.keep_prob: 0.5})
+
+            self.train_step.run(feed_dict={self.x_: batch_train[0], self.y_: batch_train[1], self.keep_prob: 0.9})
         
         # Evaulate our accuracy on the test data
         for i in range(len(self.list_subj_test)/(self.param.batch_size)):
@@ -202,6 +219,7 @@ class Hemorrhage_Classification():
         self.list_max_pooled_tensors = []
         self.list_features = []
         self.list_channels = []
+        epsilon = 1e-3
 
         def weight_variable(shape):
             initial = tf.truncated_normal(shape, stddev=0.1)
@@ -240,12 +258,18 @@ class Hemorrhage_Classification():
             self.list_weight_tensors.append(W_conv)
             b_conv = bias_variable([self.features])
             self.list_bias_tensors.append(b_conv)
-            h_conv = tf.nn.relu(conv3d(input_image, W_conv) + b_conv)  # conv2d, ReLU(x_image * weight + bias)
-            self.list_relu_tensors.append(h_conv)
-            print(h_conv.get_shape()) # (?, 256, 256, 40, 32)  # -> output image: 28x28 x32
-            input_image = max_pool_4x4(h_conv)  # apply max-pool
+
+            #h_conv = tf.nn.relu(conv3d(input_image, W_conv) + b_conv)
+            h_conv = conv3d(input_image, W_conv)
+            batch_mean, batch_var = tf.nn.moments(h_conv,[0])
+            BN = tf.nn.batch_normalization(h_conv, batch_mean, batch_var, b_conv, None, epsilon)
+            relu_layer = tf.nn.relu(BN)
+
+            self.list_relu_tensors.append(relu_layer)
+            print(relu_layer.get_shape())
+            input_image = max_pool_4x4(relu_layer)
             self.list_max_pooled_tensors.append(input_image)
-            print(input_image.get_shape()) # (?, 128, 128, 20, 32)  # -> output image: 14x14 x32
+            print(input_image.get_shape())
 
             last_max_pool_dim = tensor_get_shape(self.list_max_pooled_tensors[-1])
 
@@ -355,7 +379,7 @@ class Hemorrhage_Classification():
 
         
     def get_CT_data(self, data_set, data_set_labels, batch_index):
-        
+
         max = len(data_set)
         end = batch_index + self.param.batch_size
 
@@ -365,9 +389,10 @@ class Hemorrhage_Classification():
             end = max
             batch_index = 0
 
+        else:
+            batch_index += self.param.batch_size
 
-        #x_data = np.array([], np.float32)
-        y_data = np.zeros((len(range(begin, end)), self.param.nlabel)) # zero-filled list for 'one hot encoding'
+        y_data = np.zeros((len(range(begin, end)), self.param.nlabel))
         x_data = []
         x_data_failed = []
         index = 0
@@ -379,27 +404,27 @@ class Hemorrhage_Classification():
             CT_orig = nib.load(imagePath)
             CT_data = CT_orig.get_data()
 
+            av_CT, std_CT = np.mean(CT_data), np.std(CT_data)
+            CT_data_norm = (CT_data - av_CT)/std_CT
+
             list_dataset_paths.append(imagePath)
-            # TensorShape([Dimension(256), Dimension(256), Dimension(40)])                       
-            #resized_image = tf.image.resize_images(images=CT_data, size=(self.param.im_size,self.param.im_size,self.param.im_depth), method=1)
+
             if CT_data.size == 0:
                 x_data_failed.append(data_set[i])
                 break
 
-            resized_image = skimage.transform.resize(CT_data, (self.param.im_size,self.param.im_size,self.param.im_depth), order=3, mode='reflect')
-            #resized_image_stand = self.standardization(resized_image)
-            #image = self.sess.run(resized_image)  # (256,256,40)
-            #x_data = np.append(x_data, np.asarray(image, dtype='float32')) # (image.data, dtype='float32')
+            resized_image = skimage.transform.resize(CT_data_norm, (self.param.im_size,self.param.im_size,self.param.im_depth), order=3, mode='reflect')
+
             x_data.append(resized_image)
-            y_data[index, data_set_labels[i]] = 1  # assign 1 to corresponding column (one hot encoding)
-            #y_data.append(data_set_labels[i])
+            y_data[index, data_set_labels[i]] = 1
             index += 1
     
-        batch_index += self.param.batch_size  # update index for the next batch
         x_data = np.asarray(x_data)
         y_data = np.asarray(y_data)
 
         x_data_ = x_data.reshape(len(range(begin, end)), self.param.im_size * self.param.im_size * self.param.im_depth)
+
+
         return x_data_, y_data, batch_index, list_dataset_paths
 
     # def standardization(self, image):
