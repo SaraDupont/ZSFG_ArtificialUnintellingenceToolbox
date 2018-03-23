@@ -1,0 +1,2 @@
+model_checkpoint_path: "/home/mccoyd2/Documents/ZSFG_ArtificialUnintellingenceToolbox/Medical_Image_3D_CNN_Classification/2_6_5_model.ckpt"
+all_model_checkpoint_paths: "/home/mccoyd2/Documents/ZSFG_ArtificialUnintellingenceToolbox/Medical_Image_3D_CNN_Classification/2_6_5_model.ckpt"
