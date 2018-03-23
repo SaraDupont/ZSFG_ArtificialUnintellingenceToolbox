@@ -6,7 +6,7 @@ Created on Thu Nov 30 17:13:35 2017
 @author: mccoyd2
 """
 from utils import *
-import os, glob, re
+import os, glob, re, shutil
 import argparse
 from utils import *
 import nibabel as nib
@@ -19,37 +19,47 @@ import pandas as pd
 from skimage.transform import resize
 import commands
 
-FLAGS = tf.app.flags.FLAGS
-FLAGS.num_class = 2
-FLAGS.data_dir = '/media/mccoyd2/hamburger/Hemorrhage_Study'
+# FLAGS = tf.app.flags.FLAGS
+# FLAGS.num_class = 2
+# FLAGS.data_dir = '/media/mccoyd2/hamburger/Hemorrhage_Study'
 
 
 def get_parser_classify():
     # classification parser
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("-data",
+    parser.add_argument("-path-data",
                         help="Data to train and/or test the classification on",
                         type=str,
                         dest="path")
-    parser.add_argument("-imaging_plane",
-                        help="Axial, Saggital, Coronal etc.",
+    parser.add_argument("-path-out",
+                        help="Working directory / output path",
                         type=str,
-                        dest="imaging_plane",
-                        default="")
-    parser.add_argument("-slice_thickness",
-                        help="Slice thickness of the study",
+                        dest="path_out",
+                        default='./')
+    parser.add_argument("-fname-list-subj",
+                        help="File name of the csv file containing the master list of the subjects paths, use absolute path",
                         type=str,
-                        dest="slice_thickness",
-                        default="")
-    parser.add_argument('--nargs',
-                        help="list of relevant study procedures",
-                        dest="procedure",
-                        default="CT_BRAIN_WO_CONTRAST",
-                        nargs='+')
-    parser.add_argument('-output-filename',
-                    help="Output filename for the resulting model and list of subjects for training, validation and test sets",
-                    dest="output_filename",
-                    default="")
+                        dest="fname_master_in",
+                        default=None)
+    # parser.add_argument("-imaging_plane",
+    #                     help="Axial, Saggital, Coronal etc.",
+    #                     type=str,
+    #                     dest="imaging_plane",
+    #                     default="")
+    # parser.add_argument("-slice_thickness",
+    #                     help="Slice thickness of the study",
+    #                     type=str,
+    #                     dest="slice_thickness",
+    #                     default="")
+    # parser.add_argument('--nargs',
+    #                     help="list of relevant study procedures",
+    #                     dest="procedure",
+    #                     default="CT_BRAIN_WO_CONTRAST",
+    #                     nargs='+')
+    # parser.add_argument('-output-filename',
+    #                 help="Output filename for the resulting model and list of subjects for training, validation and test sets",
+    #                 dest="output_filename",
+    #                 default="")
     
     return parser
 
@@ -126,26 +136,29 @@ class Classification():
     def __init__(self, param):
         self.param = param
         #
+        if not os.path.isdir(self.param.path_out):
+            os.mkdir(self.param.path_out)
+        #
         self.folder_subj_lists = 'subject_lists'
-        if not os.path.isdir(os.path.join(self.param.path, self.folder_subj_lists)):
-            os.mkdir(os.path.join(self.param.path, self.folder_subj_lists))
+        if not os.path.isdir(os.path.join(self.param.path_out, self.folder_subj_lists)):
+            os.mkdir(os.path.join(self.param.path_out, self.folder_subj_lists))
         self.fname_csv_master = 'master_subject_list.csv'
         self.fname_csv_train = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_training_subjects.csv"
         self.fname_csv_valid = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_validation_subjects.csv"
         self.fname_csv_test = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_testing_subjects.csv"
         #
         self.folder_logs = 'logs'
-        if not os.path.isdir(os.path.join(self.param.path, self.folder_logs)):
-            os.mkdir(os.path.join(self.param.path, self.folder_logs))
+        if not os.path.isdir(os.path.join(self.param.path_out, self.folder_logs)):
+            os.mkdir(os.path.join(self.param.path_out, self.folder_logs))
         #
         self.folder_model = 'models'
-        if not os.path.isdir(os.path.join(self.param.path, self.folder_model)):
-            os.mkdir(os.path.join(self.param.path, self.folder_model))
+        if not os.path.isdir(os.path.join(self.param.path_out, self.folder_model)):
+            os.mkdir(os.path.join(self.param.path_out, self.folder_model))
         self.fname_model = str(self.param.im_size)+"x"+str(self.param.im_depth)+"_"+str(self.param.num_layer)+"_"+str(self.param.batch_size)+"_"+str(self.param.epochs)+"_model.ckpt"
         #
         self.folder_results ='results'
-        if not os.path.isdir(os.path.join(self.param.path, self.folder_results)):
-            os.mkdir(os.path.join(self.param.path, self.folder_results))
+        if not os.path.isdir(os.path.join(self.param.path_out, self.folder_results)):
+            os.mkdir(os.path.join(self.param.path_out, self.folder_results))
         self.fname_test_results = 'test_results_accuracy.csv'
         #
         self.list_subjects = pd.DataFrame([])
@@ -161,7 +174,6 @@ class Classification():
         self.sess = tf.InteractiveSession(config=tf.ConfigProto(log_device_placement=True))
         self.x_ = tf.placeholder(tf.float32, shape=[None, self.param.im_size*self.param.im_size*self.param.im_depth]) # [None, 28*28]
         self.y_ = tf.placeholder(tf.float32, shape=[None, self.param.nlabel])  # [None, 10]
-        self.log_path = "/home/saradupont/Documents/data/ct_data_moffitt/logs/"
         self.test_accuracy_list = []
         # Include keep_prob in feed_dict to control dropout rate.
 
@@ -279,10 +291,17 @@ class Classification():
 
     def get_filenames(self):    
 
-        if not os.path.isfile(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_master)):
+        if not os.path.isfile(os.path.join(self.param.path_out, self.folder_subj_lists, self.fname_csv_master)) and self.param.fname_master_in is None:
             self.create_nifti()
+        if self.param.fname_master_in is not None:
+            shutil.copy(self.param.fname_master_in, os.path.join(self.param.path_out, self.folder_subj_lists, self.fname_csv_master))
 
-        self.list_subjs_master = pd.read_csv(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_master))
+        self.list_subjs_master = pd.read_csv(os.path.join(self.param.path_out, self.folder_subj_lists, self.fname_csv_master))
+
+        # name of the columns names in the subjects mastr list:
+        col_name_pat_path = 'patient_path'
+        col_name_label = 'label'
+        col_name_mrn = 'MRN'
 
         ## additional filtering on datetime (keep only initial study) for Hemorrhage study
         # self.additional_filtering()
@@ -292,18 +311,18 @@ class Classification():
         # self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid,self.acn_training, self.acn_valid, self.reports_train, self.reports_valid = train_test_split(self.list_subj_train, self.list_subj_train_labels, self.mrn_training, self.acn_training,self.reports_train, test_size=self.param.valid_split ,train_size=1-self.param.valid_split)
 
         if self.param.split == 0.0:
-            self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test, self.acn_training, self.acn_testing = pd.Series([]), self.list_subjs_master['Patient_Path'], pd.Series([]), self.list_subjs_master['Label'], pd.Series([]), self.list_subjs_master['MRN'], pd.Series([]), self.list_subjs_master['Acn']
+            self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test = pd.Series([]), self.list_subjs_master[col_name_pat_path], pd.Series([]), self.list_subjs_master[col_name_label], pd.Series([]), self.list_subjs_master[col_name_mrn]
         elif self.param.split == 1.0:
-            self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test, self.acn_training, self.acn_testing = self.list_subjs_master['Patient_Path'], pd.Series([]), self.list_subjs_master['Label'], pd.Series([]), self.list_subjs_master['MRN'], pd.Series([]), self.list_subjs_master['Acn'], pd.Series([])
+            self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test = self.list_subjs_master[col_name_pat_path], pd.Series([]), self.list_subjs_master[col_name_label], pd.Series([]), self.list_subjs_master[col_name_mrn], pd.Series([])
         else:
-            self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test,self.acn_training, self.acn_testing= train_test_split(self.list_subjs_master['Patient_Path'], self.list_subjs_master['Label'], self.list_subjs_master['MRN'],self.list_subjs_master['Acn'], test_size=1-self.param.split, train_size=self.param.split)
+            self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test= train_test_split(self.list_subjs_master[col_name_pat_path], self.list_subjs_master[col_name_label], self.list_subjs_master[col_name_mrn], test_size=1-self.param.split, train_size=self.param.split)
 
         if self.param.valid_split == 0.0:
-            self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid, self.acn_training, self.acn_valid = self.list_subj_train, pd.Series([]), self.list_subj_train_labels, pd.Series([]), self.mrn_training, pd.Series([]), self.acn_training, pd.Series([])
+            self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid = self.list_subj_train, pd.Series([]), self.list_subj_train_labels, pd.Series([]), self.mrn_training, pd.Series([])
         elif self.param.valid_split == 1.0:
-            self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid, self.acn_training, self.acn_valid = pd.Series([]), self.list_subj_train, pd.Series([]), self.list_subj_train_labels, pd.Series([]), self.mrn_training, pd.Series([]), self.acn_training
+            self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid = pd.Series([]), self.list_subj_train, pd.Series([]), self.list_subj_train_labels, pd.Series([]), self.mrn_training
         else:
-            self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid,self.acn_training, self.acn_valid = train_test_split(self.list_subj_train, self.list_subj_train_labels, self.mrn_training, self.acn_training, test_size=self.param.valid_split ,train_size=1-self.param.valid_split)
+            self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid = train_test_split(self.list_subj_train, self.list_subj_train_labels, self.mrn_training, test_size=self.param.valid_split ,train_size=1-self.param.valid_split)
 
         self.list_subj_train_labels = self.list_subj_train_labels.values
         self.list_subj_valid_labels = self.list_subj_valid_labels.values
@@ -329,30 +348,30 @@ class Classification():
         # valid = pd.DataFrame({'MRN': self.mrn_valid,'Acn': self.acn_valid, 'Paths':self.list_subj_valid,'Report': self.reports_valid,'Label':self.list_subj_valid_labels})
         # test = pd.DataFrame({'MRN': self.mrn_test,'Acn': self.acn_testing,'Paths':self.list_subj_test,'Report': self.reports_test,'Label': self.list_subj_test_labels})
         #
-        train = pd.DataFrame({'MRN': self.mrn_training,'Acn': self.acn_training,'Paths':self.list_subj_train,'Label':self.list_subj_train_labels})
-        valid = pd.DataFrame({'MRN': self.mrn_valid,'Acn': self.acn_valid, 'Paths':self.list_subj_valid,'Label':self.list_subj_valid_labels})
-        test = pd.DataFrame({'MRN': self.mrn_test,'Acn': self.acn_testing,'Paths':self.list_subj_test,'Label': self.list_subj_test_labels})
+        train = pd.DataFrame({col_name_mrn: self.mrn_training,col_name_pat_path:self.list_subj_train,col_name_label:self.list_subj_train_labels})
+        valid = pd.DataFrame({col_name_mrn: self.mrn_valid, col_name_pat_path:self.list_subj_valid,col_name_label:self.list_subj_valid_labels})
+        test = pd.DataFrame({col_name_mrn: self.mrn_test,col_name_pat_path:self.list_subj_test,col_name_label: self.list_subj_test_labels})
 
         # self.valid_data_df_for_review = pd.concat(self.list_subj_valid, self.list_subj_valid_labels_encode)
         # self.test_data_df_for_review = pd.concat(self.list_subj_test, self.list_subj_test_labels_encode)
 
-        train.to_csv(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_train))
-        valid.to_csv(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_valid))
-        test.to_csv(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_test))
+        train.to_csv(os.path.join(self.param.path_out, self.folder_subj_lists, self.fname_csv_train))
+        valid.to_csv(os.path.join(self.param.path_out, self.folder_subj_lists, self.fname_csv_valid))
+        test.to_csv(os.path.join(self.param.path_out, self.folder_subj_lists, self.fname_csv_test))
 
-    def additional_filtering(self):
-        self.list_subjs_master['Datetime_Format'] = pd.to_datetime(self.list_subjs_master['Datetime'],
-                                                                   format='%Y%m%d%H%M%S')
-        mrn_groups = self.list_subjs_master.groupby(self.list_subjs_master['MRN'])
-        list_subj_initial_CT = mrn_groups.agg(
-            lambda x: x.loc[x.Datetime_Format.argmin()])  # to access a specific mrn : list_subj_unique.loc[1948791]
-
-        self.data_from_text_ML = pd.read_csv(self.param.path + "/Reports/Hemorrhage_Reports_Batch_1_Predictions.csv")
-        merged_path_labels = pd.merge(list_subj_initial_CT, self.data_from_text_ML, on=['Acn'], how='inner')
-
-        merged_path_labels = merged_path_labels[merged_path_labels.Label != 2]
-        #
-        self.list_subjs_master = merged_path_labels
+    # def additional_filtering(self):
+    #     self.list_subjs_master['Datetime_Format'] = pd.to_datetime(self.list_subjs_master['Datetime'],
+    #                                                                format='%Y%m%d%H%M%S')
+    #     mrn_groups = self.list_subjs_master.groupby(self.list_subjs_master['MRN'])
+    #     list_subj_initial_CT = mrn_groups.agg(
+    #         lambda x: x.loc[x.Datetime_Format.argmin()])  # to access a specific mrn : list_subj_unique.loc[1948791]
+    #
+    #     self.data_from_text_ML = pd.read_csv(self.param.path + "/Reports/Hemorrhage_Reports_Batch_1_Predictions.csv")
+    #     merged_path_labels = pd.merge(list_subj_initial_CT, self.data_from_text_ML, on=['Acn'], how='inner')
+    #
+    #     merged_path_labels = merged_path_labels[merged_path_labels.Label != 2]
+    #     #
+    #     self.list_subjs_master = merged_path_labels
 
         
     def get_CT_data(self, data_set, data_set_labels, batch_index):
@@ -504,14 +523,14 @@ class Classification():
         #
         df_subjs = pd.DataFrame(list_subjects)
         #
-        df_subjs.to_csv(os.path.join(self.param.path, self.folder_subj_lists, self.fname_csv_master))
+        df_subjs.to_csv(os.path.join(self.param.path_out, self.folder_subj_lists, self.fname_csv_master))
 
     def run_model(self):
-        summary_writer = tf.summary.FileWriter(os.path.join(self.param.path, self.folder_logs, "training"),
+        summary_writer = tf.summary.FileWriter(os.path.join(self.param.path_out, self.folder_logs, "training"),
                                                self.sess.graph)
-        summary_writer2 = tf.summary.FileWriter(os.path.join(self.param.path, self.folder_logs, "validation"),
+        summary_writer2 = tf.summary.FileWriter(os.path.join(self.param.path_out, self.folder_logs, "validation"),
                                                 self.sess.graph)
-        summary_writer3 = tf.summary.FileWriter(os.path.join(self.param.path, self.folder_logs, "testing"),
+        summary_writer3 = tf.summary.FileWriter(os.path.join(self.param.path_out, self.folder_logs, "testing"),
                                                 self.sess.graph)
 
         training_summary = tf.summary.scalar("training_accuracy", self.accuracy)
@@ -553,20 +572,20 @@ class Classification():
         list_pred_labels = self.test_model()
 
         self.saver = tf.train.Saver()
-        self.save_path = self.saver.save(self.sess, os.path.join(self.param.path, self.folder_model, self.fname_model))
+        self.save_path = self.saver.save(self.sess, os.path.join(self.param.path_out, self.folder_model, self.fname_model))
         print("Model saved in file: %s" % self.save_path)
 
     def test_model(self):
         # TODO: make sure that the test set doesn't include subjects that were used to train the model ? (later when it runs fine)
         if self.param.split == 0:
             # restore model
-            saver = tf.train.import_meta_graph(os.path.join(self.param.path, self.folder_model, self.fname_model+'.meta'))
-            saver.restore(self.sess, tf.train.latest_checkpoint(os.path.join(self.param.path, self.folder_model)))
+            saver = tf.train.import_meta_graph(os.path.join(self.param.path_out, self.folder_model, self.fname_model+'.meta'))
+            saver.restore(self.sess, tf.train.latest_checkpoint(os.path.join(self.param.path_out, self.folder_model)))
 
         n_test_batches = len(self.list_subj_test) / (self.param.batch_size)
         n_test_batches = n_test_batches + 1 if n_test_batches == 0 else n_test_batches
         list_pred_labels = []
-        for i in range(n_test_batches):
+        for i in range(n_test_batches+1):
             testset = self.get_CT_data(self.list_subj_test, self.list_subj_test_labels, self.batch_index_test)
             test_accuracy = self.accuracy.eval(feed_dict={self.x_: testset[0], self.y_: testset[1], self.keep_prob: 1.0})
             self.batch_index_test = testset[2]
@@ -577,10 +596,10 @@ class Classification():
             print("test accuracy %g" % test_accuracy)
 
         self.test_accuracy_list = pd.DataFrame(self.test_accuracy_list)
-        self.test_accuracy_list.to_csv(os.path.join(self.param.path, self.folder_results, self.fname_test_results))
+        self.test_accuracy_list.to_csv(os.path.join(self.param.path_out, self.folder_results, self.fname_test_results))
         res_pred = pd.DataFrame(
             {'path': self.list_subj_test, 'true_labels': self.list_subj_test_labels, 'pred_labels': list_pred_labels})
-        res_pred.to_csv(os.path.join(self.param.path, self.folder_results, 'results_test_prediction.csv'))
+        res_pred.to_csv(os.path.join(self.param.path_out, self.folder_results, 'results_test_prediction.csv'))
 
         return list_pred_labels
 
