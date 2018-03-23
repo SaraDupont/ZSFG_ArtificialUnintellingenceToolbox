@@ -6,7 +6,7 @@ Created on Thu Nov 30 17:13:35 2017
 @author: mccoyd2
 """
 from utils import *
-import os, glob, re
+import os, glob, re, shutil
 import argparse
 from utils import *
 import nibabel as nib
@@ -20,38 +20,27 @@ from skimage.transform import resize
 import commands
 import saliency
 
-FLAGS = tf.app.flags.FLAGS
-FLAGS.num_class = 2
-FLAGS.data_dir = '/media/mccoyd2/hamburger/Hemorrhage_Study'
 
 
 def get_parser_classify():
     # classification parser
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("-data",
+    parser.add_argument("-path-data",
                         help="Data to train and/or test the classification on",
                         type=str,
                         dest="path")
-    parser.add_argument("-imaging_plane",
-                        help="Axial, Saggital, Coronal etc.",
+    parser.add_argument("-path-out",
+                        help="Working directory / output path",
                         type=str,
-                        dest="imaging_plane",
-                        default="")
-    parser.add_argument("-slice_thickness",
-                        help="Slice thickness of the study",
+                        dest="path_out",
+                        default='./')
+    # TODO : make master list a mandatory arg
+    parser.add_argument("-fname-list-subj",
+                        help="File name of the csv file containing the master list of the subjects paths, use absolute path",
                         type=str,
-                        dest="slice_thickness",
-                        default="")
-    parser.add_argument('--nargs',
-                        help="list of relevant study procedures",
-                        dest="procedure",
-                        default="CT_BRAIN_WO_CONTRAST",
-                        nargs='+')
-    parser.add_argument('-output-filename',
-                    help="Output filename for the resulting model and list of subjects for training, validation and test sets",
-                    dest="output_filename",
-                    default="")
-    
+                        dest="fname_master_in",
+                        default=None)
+
     return parser
 
 def get_parser():
@@ -122,10 +111,36 @@ class Subject():
         return to_print
     
     
-class Hemorrhage_Classification():
+class Classification():
     
     def __init__(self, param):
-        self.param = param 
+        self.param = param
+        #
+        if not os.path.isdir(self.param.path_out):
+            os.mkdir(self.param.path_out)
+        #
+        self.folder_subj_lists = 'subject_lists'
+        if not os.path.isdir(os.path.join(self.param.path_out, self.folder_subj_lists)):
+            os.mkdir(os.path.join(self.param.path_out, self.folder_subj_lists))
+        self.param.fname_master_in = 'master_subject_list.csv'
+        self.fname_csv_train = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_training_subjects.csv"
+        self.fname_csv_valid = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_validation_subjects.csv"
+        self.fname_csv_test = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_testing_subjects.csv"
+        #
+        self.folder_logs = 'logs'
+        if not os.path.isdir(os.path.join(self.param.path_out, self.folder_logs)):
+            os.mkdir(os.path.join(self.param.path_out, self.folder_logs))
+        #
+        self.folder_model = 'models'
+        if not os.path.isdir(os.path.join(self.param.path_out, self.folder_model)):
+            os.mkdir(os.path.join(self.param.path_out, self.folder_model))
+        self.fname_model = str(self.param.im_size)+"x"+str(self.param.im_depth)+"_"+str(self.param.num_layer)+"_"+str(self.param.batch_size)+"_"+str(self.param.epochs)+"_model.ckpt"
+        #
+        self.folder_results ='results'
+        if not os.path.isdir(os.path.join(self.param.path_out, self.folder_results)):
+            os.mkdir(os.path.join(self.param.path_out, self.folder_results))
+        self.fname_test_results = 'test_results_accuracy.csv'
+        #
         self.list_subjects = pd.DataFrame([])
         self.failed_nifti_conv_subjects = []
         self.batch_index_train = 0
@@ -136,62 +151,46 @@ class Hemorrhage_Classification():
         self.list_test_subjects = []
         self.list_test_subjects_labels = []
         K.set_image_data_format('channels_last')  # defined as b/w images throughout
+        ## set config to True to look at ressource usage and disk usage
         self.sess = tf.InteractiveSession(config=tf.ConfigProto(log_device_placement=False))
         self.x_ = tf.placeholder(tf.float32, shape=[None, self.param.im_size*self.param.im_size*self.param.im_depth]) # [None, 28*28]
         self.y_ = tf.placeholder(tf.float32, shape=[None, self.param.nlabel])  # [None, 10]
-        self.log_path = "/media/mccoyd2/hamburger/Hemorrhage_Study/logs"
         self.test_accuracy_list = []
         # Include keep_prob in feed_dict to control dropout rate.
     def run_model(self):
+        summary_writer = tf.summary.FileWriter(self.param.path+"/logs/training", self.sess.graph)
+        summary_writer2 = tf.summary.FileWriter(self.param.path+"/logs/validation", self.sess.graph)
+        summary_writer3 = tf.summary.FileWriter(self.param.path+"/logs/testing", self.sess.graph)
 
-        writer_train = tf.summary.FileWriter(self.log_path+"/accuracy/training")
-        writer_val = tf.summary.FileWriter(self.log_path+"/accuracy/validation")
 
-        # training_summary = tf.summary.scalar("training_accuracy", self.accuracy)
-        # validation_summary = tf.summary.scalar("validation_accuracy", self.accuracy)
-
-        tf.summary.scalar("accuracy", self.accuracy)
-        write_op = tf.summary.merge_all()
+        training_summary = tf.summary.scalar("training_accuracy", self.accuracy)
+        validation_summary = tf.summary.scalar("validation_accuracy", self.accuracy)
+        test_summary = tf.summary.scalar("test_accuracy", self.accuracy)
 
         for i in range(self.param.epochs):
-            if self.batch_index_train == 0:
-                self.list_subj_train = np.array(self.list_subj_train)
-                shuffle_ind = np.arange(len(self.list_subj_train))
-                np.random.shuffle(shuffle_ind)
-                self.list_subj_train = self.list_subj_train[shuffle_ind]
-                self.list_subj_train_labels = self.list_subj_train_labels[shuffle_ind]
-                #
+
             batch_train = self.get_CT_data(self.list_subj_train, self.list_subj_train_labels, self.batch_index_train)
             self.batch_index_train = batch_train[2]
             print("Training batch %d is loaded"%(i))
-            if self.batch_index_valid == 0:
-                self.list_subj_valid = np.array(self.list_subj_valid)
-                shuffle_ind = np.arange(len(self.list_subj_valid))
-                np.random.shuffle(shuffle_ind)
-                self.list_subj_valid = self.list_subj_valid[shuffle_ind]
-                self.list_subj_valid_labels = self.list_subj_valid_labels[shuffle_ind]
-                #
             batch_validation = self.get_CT_data(self.list_subj_valid, self.list_subj_valid_labels, self.batch_index_valid)
             self.batch_index_valid = batch_validation[2]
             print("Validation batch %d is loaded"%(i))
             # Logging every 100th iteration in the training process.
             if i%2 == 0:
                 #train_accuracy = self.accuracy.eval(feed_dict={self.x_:batch_train[0], self.y_: batch_train[1], self.keep_prob: 1.0})
-                train_accuracy, train_summary, cross_entropy = self.sess.run([self.accuracy, write_op, self.cross_entropy], feed_dict={self.x_:batch_train[0], self.y_: batch_train[1], self.keep_prob: 1.0})
-                writer_train.add_summary(train_summary, i)
-                writer_train.flush()
+                train_accuracy, train_summary = self.sess.run([self.accuracy, training_summary], feed_dict={self.x_:batch_train[0], self.y_: batch_train[1], self.keep_prob: 1.0})
+                summary_writer.add_summary(train_summary, i)
 
-                valid_accuracy, valid_summary = self.sess.run([self.accuracy, write_op], feed_dict={self.x_:batch_validation[0], self.y_: batch_validation[1], self.keep_prob: 1.0})
-                writer_val.add_summary(valid_summary, i)
-                writer_val.flush()
 
-                print("step %d, training accuracy: %g, validation accuracy: %g, training cross entropy: %g"%(i, train_accuracy,valid_accuracy,cross_entropy))
+                valid_accuracy, valid_summary = self.sess.run([self.accuracy, validation_summary], feed_dict={self.x_:batch_validation[0], self.y_: batch_validation[1], self.keep_prob: 1.0})
+                summary_writer2.add_summary(valid_summary, i)
+
+                print("step %d, training accuracy %g, validation accuracy %g"%(i, train_accuracy,valid_accuracy))
 
                 if i > 50:
                     if valid_accuracy <= 0.5:
                         print batch_validation[3]
-
-            self.train_step.run(feed_dict={self.x_: batch_train[0], self.y_: batch_train[1], self.keep_prob: 0.9})
+            self.train_step.run(feed_dict={self.x_: batch_train[0], self.y_: batch_train[1], self.keep_prob: 0.5})
         
         # Evaulate our accuracy on the test data
         for i in range(len(self.list_subj_test)/(self.param.batch_size)):
@@ -313,30 +312,28 @@ class Hemorrhage_Classification():
         W_fc2 = weight_variable([1024, self.param.nlabel]) # [1024, 10]
         b_fc2 = bias_variable([self.param.nlabel]) # [10]
         
-        y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
-        print(y_conv.get_shape)  # -> output: 10
+        self.y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
+        print(self.y_conv.get_shape)  # -> output: 10
     
         ## Train and Evaluate the Model
         # set up for optimization (optimizer:ADAM)
-        self.cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y_, logits=y_conv))
+        self.cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y_, logits=self.y_conv))
         self.train_step = tf.train.AdamOptimizer(1e-3).minimize(self.cross_entropy)  # 1e-4
-        self.correct_prediction = tf.equal(tf.argmax(y_conv,1), tf.argmax(self.y_,1))
+        self.correct_prediction = tf.equal(tf.argmax(self.y_conv,1), tf.argmax(self.y_,1))
         self.accuracy = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
         
         self.sess.run(tf.global_variables_initializer())
+        self.sess.run(tf.local_variables_initializer())
 
 
-    def get_filenames(self):    
-        try:
-            self.list_subjs_master = pd.read_csv(self.param.path+"/subject_lists/master_subject_list.csv")
+    def get_filenames(self):
 
-        except IOError:
+        if not os.path.isfile(os.path.join(self.param.path_out, self.folder_subj_lists, self.param.fname_master_in)) and self.param.fname_master_in is None:
             self.create_nifti()
-            self.list_subjs_master = pd.read_csv(self.param.path+"/subject_lists/master_subject_list.csv")
-        
-        self.list_subjs_master['Datetime_Format'] =  pd.to_datetime(self.list_subjs_master['Datetime'], format='%Y%m%d%H%M%S')
-        mrn_groups = self.list_subjs_master.groupby(self.list_subjs_master['MRN'])
-        list_subj_initial_CT = mrn_groups.agg(lambda x: x.loc[x.Datetime_Format.argmin()]) # to access a specific mrn : list_subj_unique.loc[1948791]
+        if self.param.fname_master_in is not None:
+            shutil.copy(self.param.fname_master_in, os.path.join(self.param.path_out, self.folder_subj_lists, self.param.fname_master_in))
+
+        self.list_subjs_master = pd.read_csv(os.path.join(self.param.path_out, self.folder_subj_lists, self.param.fname_master_in))
 
         self.data_from_text_ML = pd.read_csv(self.param.path+"/Reports/Hemorrhage_Reports_Batch_1_Predictions.csv")
         self.merged_path_labels = pd.merge(list_subj_initial_CT,self.data_from_text_ML, on=['Acn'], how = 'inner')
@@ -379,7 +376,7 @@ class Hemorrhage_Classification():
 
         
     def get_CT_data(self, data_set, data_set_labels, batch_index):
-
+        
         max = len(data_set)
         end = batch_index + self.param.batch_size
 
@@ -389,10 +386,9 @@ class Hemorrhage_Classification():
             end = max
             batch_index = 0
 
-        else:
-            batch_index += self.param.batch_size
 
-        y_data = np.zeros((len(range(begin, end)), self.param.nlabel))
+        #x_data = np.array([], np.float32)
+        y_data = np.zeros((len(range(begin, end)), self.param.nlabel)) # zero-filled list for 'one hot encoding'
         x_data = []
         x_data_failed = []
         index = 0
@@ -404,27 +400,27 @@ class Hemorrhage_Classification():
             CT_orig = nib.load(imagePath)
             CT_data = CT_orig.get_data()
 
-            av_CT, std_CT = np.mean(CT_data), np.std(CT_data)
-            CT_data_norm = (CT_data - av_CT)/std_CT
-
             list_dataset_paths.append(imagePath)
-
+            # TensorShape([Dimension(256), Dimension(256), Dimension(40)])                       
+            #resized_image = tf.image.resize_images(images=CT_data, size=(self.param.im_size,self.param.im_size,self.param.im_depth), method=1)
             if CT_data.size == 0:
                 x_data_failed.append(data_set[i])
                 break
 
-            resized_image = skimage.transform.resize(CT_data_norm, (self.param.im_size,self.param.im_size,self.param.im_depth), order=3, mode='reflect')
-
+            resized_image = skimage.transform.resize(CT_data, (self.param.im_size,self.param.im_size,self.param.im_depth), order=3, mode='reflect')
+            #resized_image_stand = self.standardization(resized_image)
+            #image = self.sess.run(resized_image)  # (256,256,40)
+            #x_data = np.append(x_data, np.asarray(image, dtype='float32')) # (image.data, dtype='float32')
             x_data.append(resized_image)
-            y_data[index, data_set_labels[i]] = 1
+            y_data[index, data_set_labels[i]] = 1  # assign 1 to corresponding column (one hot encoding)
+            #y_data.append(data_set_labels[i])
             index += 1
     
+        batch_index += self.param.batch_size  # update index for the next batch
         x_data = np.asarray(x_data)
         y_data = np.asarray(y_data)
 
         x_data_ = x_data.reshape(len(range(begin, end)), self.param.im_size * self.param.im_size * self.param.im_depth)
-
-
         return x_data_, y_data, batch_index, list_dataset_paths
 
     # def standardization(self, image):
@@ -457,56 +453,7 @@ class Hemorrhage_Classification():
 
 
 
-    def create_nifti(self):
-        self.param.procedure = [x.lower() for x in self.param.procedure]
-        for group in os.listdir(self.param.path):
-            if os.path.isdir(os.path.join(self.param.path, group)):
-                for batch in os.listdir(os.path.join(self.param.path, group)):
-                    dicom_sorted_path  = os.path.join(self.param.path, group, batch, 'DICOM-SORTED')
-                    if os.path.isdir(dicom_sorted_path):
-                        for subj in os.listdir(dicom_sorted_path):
-                            self.mrn = subj.split('-')[0]
-                            if os.path.isdir(os.path.join(dicom_sorted_path, subj)):
-                                for contrast in os.listdir(os.path.join(dicom_sorted_path, subj)):
-                                    for input_proc in self.param.procedure:
-                                        if input_proc in contrast.lower():
-                                            for proc in os.listdir(os.path.join(dicom_sorted_path, subj, contrast)):
-                                                if self.param.imaging_plane in proc:
-                                                    if re.findall(r"2.*mm",proc):
-                                                        path_study = os.path.join(dicom_sorted_path, subj, contrast, proc)
-                                                        nii_in_path = False
-                                                        ACN = contrast.split('-')[0]
-                                                        for fname in os.listdir(path_study):
-                                                            datetime = re.findall(r"(\d{14})",proc)[0]
-                                                            if fname.endswith('.nii.gz'):
-                                                                nifti_name = fname
-                                                                nii_in_path = True
-#                                                                datetime = proc.split('-')[1]
-#                                                                datetime = datetime.split('_')[0]
-                                                                self.list_subjects = self.list_subjects.append(pd.DataFrame({'Acn':[ACN], 'MRN': [self.mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
-                                                                break
-                                                        
-                                                        if not nii_in_path:
-                                                            ACN = contrast.split('-')[0]
-                                                            #dicom2nifti.dicom_series_to_nifti(path_study, path_study, reorient_nifti=True)
-                                                            print("Converting DICOMS for "+subj+" to NIFTI format")
-#                                                            path_study = os.path.join(dicom_sorted_path, subj, contrast, proc)
-                                                            status, output = commands.getstatusoutput('dcm2nii '+path_study)
-                                                            if status != 0:
-                                                                self.failed_nifti_conv_subjects.append(subj)
-                                                            else:
-                                                                index_nifti = [i for i, s in enumerate(output) if ">" in str(s)]
-                                                                index_end = [i for i, s in enumerate(output[index_nifti[0]:]) if "\n" in str(s)]
-                                                                nifti_name = output[index_nifti[0]+1:index_nifti[0]+index_end[0]]
-                                                                #src_dcms = glob(path_study+'/*.dcm')
-            #                                                    stacks = dcmstack.parse_and_stack(src_dcms)
-            #                                                    stack = stacks.values[0]
-            #                                                    nii = stack.to_nifti()
-            #                                                    nii.to_filename(subj+contrast+proc+'.nii.gz')
-                                                                self.list_subjects = self.list_subjects.append(pd.DataFrame({'Acn':[ACN],'MRN': [self.mrn],'Patient_Path': [path_study+'/'+nifti_name], 'group': [group], 'Datetime': [datetime]}))
-                                                            
-        list_subjects_to_DF = pd.DataFrame(self.list_subjects)
-        list_subjects_to_DF.to_csv(self.param.path+"/subject_lists/master_subject_list.csv")
+
 
 
 

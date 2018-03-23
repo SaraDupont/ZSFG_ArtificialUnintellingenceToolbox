@@ -1,11 +1,3 @@
-#!/usr/bin/env python2
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Jan 23 16:57:33 2018
-
-@author: mccoyd2
-"""
-
 import os, argparse, commands
 import nibabel as nib
 import numpy as np
@@ -15,11 +7,11 @@ import pandas as pd
 
 def get_parser():
     parser = argparse.ArgumentParser(description='Quality control function to review nifti images easily. 2D images will be saved as JPEG in the specified output folder. 3D images will be opened individually in fslview and labeled from the terminal after closing fslview.')
-    parser.add_argument("-type",
-                        help="type of review: fsl = open fslview and write label ni terminal, jpg = save images as jpg (only for 2D)",
+    parser.add_argument("-im-type",
+                        help="image type, choose between 2D or 3D images",
                         type=str,
-                        dest="type",
-                        choices=['fsl', 'jpg'],
+                        dest="im_type",
+                        choices=['2d', '3d'],
                         required=True)
     parser.add_argument("-list-paths",
                         help="numpy file containing the list of paths of the images to review.",
@@ -27,17 +19,17 @@ def get_parser():
                         dest="list_paths",
                         default="")
     parser.add_argument("-ofolder",
-                        help="Folder to output the JPEG images (jpg) ot CSV file with assigned labels (fsl)",
+                        help="Folder to output the JPEG images (2D) ot CSV file with assigned labels (3D)",
                         type=create_folder,
                         dest="ofolder",
                         default="./")
     parser.add_argument('-output-csv',
-                        help="Output filename for the CSV file (only for fsl mode).",
+                        help="Output filename for the CSV file (only for 3D images).",
                         type=str,
                         dest="fname_csv",
                         default="images_labels.csv")
     parser.add_argument('-b',
-                        help="boundaries to set the contrast in fslview (only for fsl mode).\nexample: -b 0,100",
+                        help="boundaries to set the contrast in fslview (only for 3D images).\nexample: -b 0,100",
                         type=str,
                         dest="boundaries_contrast",
                         default="")
@@ -45,7 +37,7 @@ def get_parser():
                         help="Is fslview deprecated on your machine ?",
                         type=bool,
                         dest="fslview_deprecated",
-                        default = False)
+                        default=True)
 
 
     return parser
@@ -87,55 +79,43 @@ def save_2d_images(param):
             print 'WARNING: ', fname, 'does not exist.'
 
 
-def review_images(param):
+def review_3d_images(param):
+    ## TODO: IMPROVE TO INCLUDE MISSING IMAGES IN THE LIST (LABELED AS -1)
     list_labels = []
     list_fnames = []
     list_paths_exist = []
-    list_paths = param.list_paths
-    list_accessions = []
-
-    for path in range(1,len(list_paths)):
-        if os.path.isfile(list_paths[path]):
-            print str(len(list_paths))
-            path_im = '/'.join(list_paths[path].split('/')[:-1])
-            fname_im = list_paths[path].split('/')[-1]
-
-            accession = fname_im.split('_')[0]
-
+    for fname in param.list_paths:
+        if os.path.isfile(fname):
+            path_im = '/'.join(fname.split('/')[:-1])
+            fname_im = fname.split('/')[-1]
             # define fslview command
             cmd_fslview = 'fslview'
             if param.fslview_deprecated:
                 cmd_fslview += '_deprecated'
-            cmd_fslview += ' '+list_paths[path]
+            cmd_fslview += ' '+fname
             if param.boundaries_contrast != '':
                 cmd_fslview += ' -b '+param.boundaries_contrast
             #run fslview
             s, o = commands.getstatusoutput(cmd_fslview)
-            label = raw_input("Please label the image ("+fname_im+"): ")
+            label = raw_input("Please label the image you just closed: ")
             #
             # store image name and label
             list_paths_exist.append(path_im)
             list_fnames.append(fname_im)
             list_labels.append(label)
-            list_accessions.append(accession)
-        else:
-            list_paths_exist.append(list_paths[path])
-            list_fnames.append(list_paths[path])
-            list_labels.append('-1')
-
     #
     # save the result as a CSV file
-    df = pd.DataFrame({'path': list_paths_exist, 'fname': list_fnames, 'label': list_labels, 'accession': list_accessions})
+    df = pd.DataFrame({'path': list_paths_exist, 'fname': list_fnames, 'label': list_labels})
     df.to_csv(os.path.join(param.ofolder, param.fname_csv))
 
 def main():
     parser = get_parser()
     param = parser.parse_args()
     #
-    if param.type == 'jpg':
+    if param.im_type == '2d':
         save_2d_images(param)
-    elif param.type == 'fsl':
-        review_images(param)
+    elif param.im_type == '3d':
+        review_3d_images(param)
 
 
 if __name__=="__main__":
