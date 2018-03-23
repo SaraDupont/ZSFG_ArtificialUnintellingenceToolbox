@@ -27,6 +27,8 @@ from keras.layers import Dense
 from keras.layers import Dropout
 from keras.preprocessing.image import ImageDataGenerator
 from matplotlib import pyplot
+from sklearn.metrics import confusion_matrix, classification_report
+
 
 def get_parser_classify():
     # classification parser
@@ -90,7 +92,7 @@ def get_parser():
                         help="Number of epochs to run the network.",
                         type=int,
                         dest="epochs",
-                        default=500)
+                        default=100)
     parser.add_argument("-batch-size",
                     help="Size of batches that make up each epoch.",
                     type=int,
@@ -144,6 +146,9 @@ class Osteomyelitis_Classification():
         self.test_accuracy_list = []
 
     def run_model(self):
+        
+        train_df_list = []
+        
         summary_writer = tf.summary.FileWriter(self.param.output_path+"/logs/training", self.sess.graph)
         summary_writer2 = tf.summary.FileWriter(self.param.output_path+"/logs/validation", self.sess.graph)
         summary_writer3 = tf.summary.FileWriter(self.param.output_path+"/logs/testing", self.sess.graph)
@@ -174,30 +179,89 @@ class Osteomyelitis_Classification():
                 print("step %d, training accuracy %g, validation accuracy %g"%(i, train_accuracy,valid_accuracy))
 
                 if i > 50:
-                    if valid_accuracy <= 0.7:
-#                        prediction=tf.cast(tf.argmax(self.y_conv,1), tf.float64)
+                    if train_accuracy <= 0.8:
+                        train_prediction=tf.cast(tf.argmax(self.y_conv,1), tf.float64)
+                        train_prediction_prob=tf.cast(self.y_conv,tf.float64)
 #                        for i in batch_train[0].shape[0]:
 #                            image = batch_train[0][i].reshape(1,self.param.im_size_x*self.param.im_size_x)
-#                            prediction.eval(feed_dict={self.x_:image})
-                        print batch_validation[3]
+                        train_prediction = pd.DataFrame(np.asarray(train_prediction.eval(feed_dict={self.x_:batch_train[0], self.keep_prob: 1.0})))
+                        train_prediction_prob = pd.DataFrame(np.asarray(train_prediction_prob.eval(feed_dict={self.x_:batch_train[0], self.keep_prob: 1.0})))
+                        labels = pd.DataFrame(batch_train[1])
+                        ap_paths = pd.DataFrame(batch_train[3])
+                        obl_paths = pd.DataFrame(batch_train[4])
+                        epoch = pd.DataFrame([i]*self.param.batch_size)
+                        
+                        paths = pd.concat([ap_paths.reset_index(drop=True), obl_paths], axis=1)
+                        paths_pred = pd.concat([paths.reset_index(drop=True), train_prediction], axis=1)
+                        paths_pred_labels = pd.concat([paths_pred.reset_index(drop=True), labels], axis=1)
+                        paths_pred_labels_epochs = pd.concat([paths_pred_labels.reset_index(drop=True), epoch], axis=1)
+                        train_df_list.append(paths_pred_labels_epochs)
+                        
             self.train_step.run(feed_dict={self.x_: batch_train[0], self.y_: batch_train[1], self.keep_prob: 0.5})
         
         # Evaulate our accuracy on the test data
+#        test_set_dict = {'path': [], 'prediction': [], 'actual' : []} 
+        test_df_list = []
+        
         for i in range(len(self.list_subj_test_AP)/(self.param.batch_size)):
             testset = self.get_xray_data(self.list_subj_test_AP, self.list_subj_test_OBL, self.list_subj_test_labels, self.batch_index_test)
             test_accuracy = self.accuracy.eval(feed_dict={self.x_: testset[0], self.y_: testset[1], self.keep_prob: 1.0})
-            self.batch_index_test = testset[2]
-            self.test_accuracy_list.append(test_accuracy)
+            prediction=tf.cast(tf.argmax(self.y_conv,1), tf.float64)
+            test_predictions = np.asarray(prediction.eval(feed_dict={self.x_:testset[0], self.keep_prob: 1.0}))
+            epoch = pd.DataFrame([i]*self.param.batch_size)
+#            test_predictions = np.reshape(test_predictions, (testset[0].shape[0],1))
+#            np.savetxt(self.param.output_path+"/test_results/test_set_results_test.csv", test_predictions, delimiter=",") 
+            test_predictions = pd.DataFrame(test_predictions)
+            labels = pd.DataFrame(testset[1])
+            
+            ap_paths = pd.DataFrame(testset[3])
+            obl_paths = pd.DataFrame(testset[4])
+            
+            paths = pd.concat([ap_paths.reset_index(drop=True), obl_paths], axis=1)
+            paths_pred = pd.concat([paths.reset_index(drop=True), test_predictions], axis=1)
+            paths_pred_labels = pd.concat([paths_pred.reset_index(drop=True), labels], axis=1)
+#            paths_pred_labels_epochs = pd.concat([paths_pred_labels.reset_index(drop=True), epoch], axis=1)
+
+            
+            test_df_list.append(paths_pred_labels)
+
+#            test_set_dict['ap_path'].append(testset[3])
+#            test_set_dict['obl_path'].append(testset[3])
+#            test_set_dict['prediction'].append(test_predictions)
+#            test_set_dict['actual'].append(testset[1])
+            
+#            test_set_dict_df = pd.DataFrame.from_dict(test_set_dict, orient="index")
+#            test_set_dict_df.to_csv(self.param.output_path+"/test_results/test_set_results.csv")
+#            test_set_dict_df2 = pd.read_csv(self.param.output_path+"/test_results/test_set_results.csv", index_col=0)
+#            self.batch_index_test = testset[2]
+#            self.test_accuracy_list.append(test_accuracy)
             print("test accuracy %g"%test_accuracy)
             #summary_writer3.add_summary(test_accuracy, i)
 
-
+        test_set_results = pd.concat(test_df_list)
+        test_set_results.columns = ['ap_paths', 'obl_paths', 'prediction','negative label','positive label']
+        
+        train_set_results = pd.concat(train_df_list)
+        train_set_results.columns = ['ap_paths', 'obl_paths', 'prediction','negative label','positive label','epoch']
+        
+        test_set_results.to_csv(self.param.output_path+"/test_results/test_set_results.csv")
+        train_set_results.to_csv(self.param.output_path+"/train_results/train_set_results.csv")
+        
         self.saver = tf.train.Saver()
         self.save_path = self.saver.save(self.sess, self.param.output_path+"/models/"+str(self.param.im_size_x)+"x"+"_"+str(self.param.num_layer)+"_"+str(self.param.batch_size)+"_"+str(self.param.epochs)+"_model.ckpt")
         print("Model saved in file: %s" % self.save_path)
         self.test_accuracy_list = pd.DataFrame(self.test_accuracy_list)
         self.test_accuracy_list.to_csv(self.param.output_path+"/test_results/test_accuracy.csv")
-    
+        
+        test_accuracy, test_precision, test_recall, test_f1, test_cm = calc_metrics(test_set_results['positive label'], test_set_results['prediction'])
+        
+        print("Test Accuracy " +str(test_accuracy))
+        print("Test Precision " +str(test_precision))
+        print("Test Recall " +str(test_recall))
+        print("Test F1 " +str(test_f1))
+        print("Confusion Matrix \n" +str(test_cm))
+        
+        
     def build_vol_classifier(self):
         
         self.features = 32
@@ -300,6 +364,22 @@ class Osteomyelitis_Classification():
         ## Train and Evaluate the Model
         # set up for optimization (optimizer:ADAM)
         self.cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y_, logits=self.y_conv))
+#        classes_weights = tf.constant(4.0) 
+        #weight_per_label = tf.transpose(tf.matmul(self.y_, tf.transpose(classes_weights)) )
+        
+        
+#        ratio = 0.75
+#        self.class_weight = tf.constant([[ratio, 1.0 - ratio]])
+#        self.weighted_logits = tf.multiply(self.y_conv, self.class_weight) # shape [batch_size, 2]
+#        self.xent = tf.nn.softmax_cross_entropy_with_logits(logits = self.weighted_logits, labels = self.y_, name="xent_raw")
+#        weight_per_label = tf.transpose( tf.matmul(self.y_, tf.transpose(class_weight)) ) #shape [1, batch_size]
+#        xent = tf.multiply(weight_per_label, tf.nn.softmax_cross_entropy_with_logits(logits = self.y_conv, labels = self.y_, name="xent_raw")) #shape [1, batch_size]
+#        self.cross_entropy = tf.reduce_mean(self.xent)
+#        self.cross_entropy = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=self.y_, logits=self.y_conv, pos_weight=classes_weights))
+        
+        
+        
+        
         self.train_step = tf.train.AdamOptimizer(1e-3).minimize(self.cross_entropy)  # 1e-4
         self.correct_prediction = tf.equal(tf.argmax(self.y_conv,1), tf.argmax(self.y_,1))
         self.accuracy = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
@@ -475,36 +555,36 @@ class Osteomyelitis_Classification():
         self.data_labels_radiologist_and_ML = self.data_from_text_ML.append(pd.DataFrame(data = self.data_from_radiologist))
         self.data_labels_radiologist_and_ML_and_Apply = self.data_labels_radiologist_and_ML.append(pd.DataFrame(data = self.data_from_text_ML_FullApply))
 #        datetime_match = datetime_match.rename(index=str, columns={"Accession1": "Acn"})
-        self.data_labels_radiologist_and_ML = self.data_labels_radiologist_and_ML.rename(index=str, columns={"Accession1": "Acn"})
+        self.data_labels_radiologist_and_ML_and_Apply = self.data_labels_radiologist_and_ML_and_Apply.rename(index=str, columns={"Accession1": "Acn"})
         
-        self.merged_path_labels = pd.merge(self.merged_path_labels_acn_by_line,self.data_labels_radiologist_and_ML, on=['Acn'], how = 'inner')
+        self.merged_path_labels = pd.merge(self.merged_path_labels_acn_by_line,self.data_labels_radiologist_and_ML_and_Apply, on=['Acn'], how = 'inner')
         
         self.merged_path_labels = self.merged_path_labels[self.merged_path_labels.Osteomyelitis != self.param.exclude_label]
         self.merged_path_labels = self.merged_path_labels[np.isfinite(self.merged_path_labels['Osteomyelitis'])]
 
         count_labels = self.merged_path_labels.groupby('Osteomyelitis').count()
-        print(str(count_labels['Patient_Path']))
+        print(str(count_labels['Patient_Path_x']))
         
-        merged_label_groups = self.merged_path_labels.groupby(self.merged_path_labels['Acn'])
-        AP_Images = pd.DataFrame()
-        Oblique_Images = pd.DataFrame()
-        
-        columns = self.merged_path_labels.columns.tolist()
-        for group in merged_label_groups: 
-            group = pd.DataFrame(group[1])
-            for i in range(group.shape[0]):
-                if group['View Angle Cat'].iloc[i] == 'AP':
-                    #line = pd.DataFrame(group.iloc[i], columns=columns)
-                    AP_Images = AP_Images.append(group.iloc[i])
-                if group['View Angle Cat'].iloc[i] == 'OBL':
-                    Oblique_Images = Oblique_Images.append(group.iloc[i])
-                    
-        
-        
-        
-        self.merged_path_labels_acn_by_line = self.merged_path_labels_acn_by_line.reset_index(drop=True)
+#        merged_label_groups = self.merged_path_labels.groupby(self.merged_path_labels['Acn'])
+#        AP_Images = pd.DataFrame()
+#        Oblique_Images = pd.DataFrame()
+#        
+#        columns = self.merged_path_labels.columns.tolist()
+#        for group in merged_label_groups: 
+#            group = pd.DataFrame(group[1])
+#            for i in range(group.shape[0]):
+#                if group['View Angle Cat'].iloc[i] == 'AP':
+#                    #line = pd.DataFrame(group.iloc[i], columns=columns)
+#                    AP_Images = AP_Images.append(group.iloc[i])
+#                if group['View Angle Cat'].iloc[i] == 'OBL':
+#                    Oblique_Images = Oblique_Images.append(group.iloc[i])
+#                    
+#        
+#        
+#        
+        self.merged_path_labels = self.merged_path_labels.reset_index(drop=True)
         ##split the data
-        self.list_subj_train_AP, self.list_subj_test_AP, self.list_subj_train_OBL, self.list_subj_test_OBL, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test,self.acn_training, self.acn_testing, self.reports_train, self.reports_test = train_test_split(self.merged_path_labels_acn_by_line['Patient_Path_x'], self.merged_path_labels_acn_by_line['Patient_Path_y'], self.merged_path_labels_acn_by_line['Osteomyelitis_x'], self.merged_path_labels_acn_by_line['MRN_y_x'],self.merged_path_labels_acn_by_line['Acn'], self.merged_path_labels_acn_by_line['Impression_x'], test_size=1-self.param.split, train_size=self.param.split)
+        self.list_subj_train_AP, self.list_subj_test_AP, self.list_subj_train_OBL, self.list_subj_test_OBL, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test,self.acn_training, self.acn_testing, self.reports_train, self.reports_test = train_test_split(self.merged_path_labels['Patient_Path_x'], self.merged_path_labels['Patient_Path_y'], self.merged_path_labels['Osteomyelitis'], self.merged_path_labels['MRN_y'],self.merged_path_labels['Acn'], self.merged_path_labels['Impression'], test_size=1-self.param.split, train_size=self.param.split)
                 
         self.list_subj_train_AP, self.list_subj_valid_AP,self.list_subj_train_OBL,self.list_subj_valid_OBL, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid, self.acn_training, self.acn_valid, self.reports_train, self.reports_valid = train_test_split(self.list_subj_train_AP, self.list_subj_train_OBL, self.list_subj_train_labels, self.mrn_training, self.acn_training,self.reports_train, test_size=self.param.valid_split ,train_size=1-self.param.valid_split)
 
@@ -597,6 +677,16 @@ class Osteomyelitis_Classification():
         list_subjects_to_DF["View Angle Cat"] = np.where(list_subjects_to_DF["View Angle"].str.contains("obl"), "OBL", "AP")
         list_subjects_to_DF.to_csv(self.param.path+"/subject_lists/master_subject_list.csv")
         
+def calc_metrics(true, prediction):
+    cm = confusion_matrix(true, prediction)
+    TN, FP, FN, TP = confusion_matrix(true, prediction).ravel()
+    #print(classification_report(true, prediction))
+    Accuracy = float((TP + TN))/float((TP + TN + FP + FN))
+    Precision = float(TP) / float((TP + FP))
+    Recall = float(TP) / float((TP + FN))
+    F1_Score = 2 * float(Precision) * float(Recall) / float((Precision + Recall))
+    
+    return Accuracy, Precision, Recall, F1_Score, cm
 
 def main():
     parser = get_parser()

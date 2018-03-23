@@ -1,5 +1,7 @@
 import argparse
-
+import errno
+import os
+from glob import glob
 
 def restricted_float(x=None):
     if x is not None:
@@ -17,3 +19,12 @@ def add_suffix(path, suffix):
     list_path[-1] = fname_suffix
     path_suffix = '/'.join(list_path)
     return path_suffix
+
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc:
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else:
+            raise

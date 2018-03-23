@@ -90,12 +90,12 @@ def get_parser_classify():
                     help="apply a model to a full dataset, no training",
                     type=bool,
                     dest="apply_all",
-                    default=False)
-    parser.add_argument("-skip_preprocessing",
+                    default=True)
+    parser.add_argument("-skip-preprocessing",
                     help="skip preprocessing and text cleaning and use saved sparse matrix",
                     type=bool,
                     dest="skip_preprocessing",
-                    default=False)    
+                    default=True)
     parser.add_argument("-max_ngrams",
                     help="maximum number of ngram (adjacent words) in preprocessing",
                     type=int,
@@ -142,10 +142,10 @@ class Radiology_Report_NLP():
                       'missing':[-999],
                       'seed': [1337]}
         
-        self.parameters_x_small = {'nthread':[2,3], #when use hyperthread, xgboost may become slower
+        self.parameters_x_small = {'nthread':[2], #when use hyperthread, xgboost may become slower
                       'objective':['binary:logistic'],
                       'learning_rate': [0.01], #so called `eta` value
-                      'max_depth': [2,4],
+                      'max_depth': [2],
                       'min_child_weight': [3],
                       'silent': [1],
                       'subsample': [0.6],
@@ -192,20 +192,20 @@ class Radiology_Report_NLP():
                 self.X_apply.to_csv(os.path.join(self.param.output_path, folder_word2vec, fname_csv_full))
             else:
                 self.X_apply = pd.read_csv(os.path.join(self.param.output_path, folder_word2vec, fname_csv_full))
-#               
-        self.split_data()
+                if self.X_apply.shape[1] == 1501:
+                    self.X_apply = self.X_apply.drop(self.X_apply.columns[[0]], axis=1)
 
      
     def define_apply_data(self):
         
         if self.param.apply_all == False: 
             if self.param.exclude_label is not "NA":
-                self.reports = self.reports.drop(self.reports[self.reports.Osteomyelitis == int(self.param.exclude_label)].index)
+                self.reports = self.reports.drop(self.reports[self.reports[self.param.outcome] == int(self.param.exclude_label)].index)
  
                 self.reports_apply = self.reports[self.reports[self.param.outcome].isnull()]
                 self.reports_apply = self.reports_apply.reset_index(drop=True)
                 self.reports_apply = self.reports_apply[:-1]
-                self.reports_apply = self.reports_apply.drop('Osteomyelitis', 1)
+                self.reports_apply = self.reports_apply.drop(self.param.outcome, 1)
                 
                 self.reports_train = self.reports[self.reports[self.param.outcome].notnull()]
         
@@ -678,25 +678,25 @@ class Radiology_Report_NLP():
             for index in range(model_applied_reports.shape[0]):
                 prediction = model_applied_reports['Confidence Category'].iloc[index]
                 if prediction == self.confidence_labels[0] :
-                    control_accessions.append(model_applied_reports['Accession1'].iloc[index])
+                    control_accessions.append(model_applied_reports['Acn'].iloc[index])
                     count_controls_apply +=1 
                     
                 elif prediction == self.confidence_labels[2]:
-                    case_accessions.append(model_applied_reports['Accession1'].iloc[index])
+                    case_accessions.append(model_applied_reports['Acn'].iloc[index])
                     count_cases_apply +=1 
                 else: 
-                    review_accessions.append(model_applied_reports['Accession1'].iloc[index])
+                    review_accessions.append(model_applied_reports['Acn'].iloc[index])
                 
             for index in range(self.reports_train.shape[0]):
                 label = self.reports_train[self.param.outcome].iloc[index]
                 if label == 0:
-                    control_accessions_train.append(self.reports_train['Accession1'].iloc[index])
+                    control_accessions_train.append(self.reports_train['Acn'].iloc[index])
                     count_controls_train +=1 
                 elif label == 1:
-                    case_accessions_train.append(self.reports_train['Accession1'].iloc[index])
+                    case_accessions_train.append(self.reports_train['Acn'].iloc[index])
                     count_cases_train +=1
                 else: 
-                    review_accessions_train.append(self.reports_train['Accession1'].iloc[index])
+                    review_accessions_train.append(self.reports_train['Acn'].iloc[index])
         
             control_accessions_train, case_accessions_train, review_accessions_train = map(str, control_accessions_train), map(str, case_accessions_train), map(str, review_accessions_train)
             control_accessions, case_accessions, review_accessions = map(str, control_accessions), map(str, case_accessions), map(str, review_accessions)
@@ -718,14 +718,14 @@ class Radiology_Report_NLP():
             for index in range(model_applied_reports.shape[0]):
                 prediction = model_applied_reports['Confidence Category'].iloc[index]
                 if prediction == self.confidence_labels[0] :
-                    control_accessions.append(model_applied_reports['Accession1'].iloc[index])
+                    control_accessions.append(model_applied_reports['Acn'].iloc[index])
                     count_controls_apply +=1 
                     
                 elif prediction == self.confidence_labels[2]:
-                    case_accessions.append(model_applied_reports['Accession1'].iloc[index])
+                    case_accessions.append(model_applied_reports['Acn'].iloc[index])
                     count_cases_apply +=1 
                 else: 
-                    review_accessions.append(model_applied_reports['Accession1'].iloc[index])             
+                    review_accessions.append(model_applied_reports['Acn'].iloc[index])
             
             control_accessions, case_accessions, review_accessions = map(str, control_accessions), map(str, case_accessions), map(str, review_accessions)
 
@@ -754,13 +754,13 @@ def save_accession_sql_format(accessions,name):
     
     out = ""
     for i, num in enumerate(accessions):
-    	if i%1000 != 0:
-    		out += "\'"+num+"\', "
-    	else: 
-    		out = out[:-2]
-    		out += "\n"
-    		f.write(out)
-    		out = ""
+        if i%1000 != 0:
+            out += "\'"+num+"\', "
+        else:
+            out = out[:-2]
+            out += "\n"
+            f.write(out)
+            out = ""
     
     
     out = out[:-2]
@@ -792,7 +792,7 @@ def main():
             
         assert chosen_model in read.dic_model_names.keys(), "ERROR: chosen model not in the model dictionary"
         
-    
+    chosen_model = "Best XGB"
     df_pred_apply = read.apply_model(model = chosen_model)
     
     read.get_group_list_accessions(df_pred_apply)
