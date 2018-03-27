@@ -112,7 +112,7 @@ def get_parser_classify():
                         help="maximum number of ngram (adjacent words) in preprocessing",
                         type=to_list,
                         dest="max_ngrams",
-                        default=1)
+                        default=[1])
     return parser
 
 def to_list(l):
