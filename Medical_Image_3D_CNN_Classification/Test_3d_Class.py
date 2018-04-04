@@ -18,7 +18,7 @@ from keras import backend as K
 import pandas as pd
 from skimage.transform import resize
 import commands
-import saliency
+# import saliency
 
 
 
@@ -34,12 +34,11 @@ def get_parser_classify():
                         type=str,
                         dest="path_out",
                         default='./')
-    # TODO : make master list a mandatory arg
     parser.add_argument("-fname-list-subj",
-                        help="File name of the csv file containing the master list of the subjects paths, use absolute path",
+                        help="File name of the csv file containing the master list of the subjects paths, use absolute path. Input 1 file containing all subjects OR 3 files for train, validation and test IN THAT ORDER: train.csv,valid.csv,test.csv",
                         type=str,
                         dest="fname_master_in",
-                        default=None)
+                        required=True)
 
     return parser
 
@@ -57,7 +56,7 @@ def get_parser():
                         type=restricted_float,
                         dest="valid_split",
                         default=0.2)
-    parser.add_argument("-num_layer",
+    parser.add_argument("-num-layer",
                         help="Number of layers in the  contracting path of the model",
                         type=int,
                         dest="num_layer",
@@ -89,28 +88,46 @@ def get_parser():
                     dest="nlabel",
                     default=2)
 
-    parser.add_argument("-num_neuron",
+    parser.add_argument("-num-neuron",
                     help="Number of neurons for the fully connected layer.",
                     type=int,
                     dest="num_neuron",
                     default=1024)
+
+    parser.add_argument("-k-conv",
+                    help="kernel size of the convolution.",
+                    type=int,
+                    dest="kernel_conv",
+                    default=5)
+    parser.add_argument("-k-max-pool",
+                    help="kernel size of the max pooling.",
+                    type=int,
+                    dest="kernel_max_pool",
+                    default=4)
+    parser.add_argument("-features",
+                    help="Number of features in the first layer. (following layers are gonna double the value at each layer)",
+                    type=int,
+                    dest="features",
+                    default=32)
+
     return parser
 
+#
+# class Subject():
+#     def __init__(self, path='', group='', ori=''):
+#         self.path = path
+#         self.group = group
+#
+#     #
+#     def __repr__(self):
+#         to_print = '\nSubject:   '
+#         to_print += '   path: '+self.path
+#         to_print += '   group: '+self.group
+#
+#         return to_print
+#
 
-class Subject():
-    def __init__(self, path='', group='', ori=''):
-        self.path = path
-        self.group = group
 
-    #
-    def __repr__(self):
-        to_print = '\nSubject:   '
-        to_print += '   path: '+self.path
-        to_print += '   group: '+self.group
-
-        return to_print
-    
-    
 class Classification():
     
     def __init__(self, param):
@@ -122,9 +139,10 @@ class Classification():
         self.folder_subj_lists = 'subject_lists'
         if not os.path.isdir(os.path.join(self.param.path_out, self.folder_subj_lists)):
             os.mkdir(os.path.join(self.param.path_out, self.folder_subj_lists))
-        self.fname_csv_train = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_training_subjects.csv"
-        self.fname_csv_valid = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_validation_subjects.csv"
-        self.fname_csv_test = str(self.param.im_size) + "x" + str(self.param.im_depth) + "_" + str(self.param.num_layer) + "_" + str(self.param.batch_size) + "_" + str(self.param.epochs) + "_testing_subjects.csv"
+        info_param = str(self.param.num_layer)+'layers_'+str(self.param.im_size) + "x" + str(self.param.im_depth) +'im_batchsize'+str(self.param.batch_size)+'_conv'+str(self.param.kernel_conv)+'_maxpool'+str(self.param.kernel_max_pool)+'_'+str(self.param.features)+'features'
+        self.fname_csv_train = info_param + "_training_subjects.csv"
+        self.fname_csv_valid = info_param + "_validation_subjects.csv"
+        self.fname_csv_test = info_param + "_testing_subjects.csv"
         #
         self.folder_logs = 'logs'
         if not os.path.isdir(os.path.join(self.param.path_out, self.folder_logs)):
@@ -138,6 +156,7 @@ class Classification():
         self.folder_model = 'models'
         if not os.path.isdir(os.path.join(self.param.path_out, self.folder_model)):
             os.mkdir(os.path.join(self.param.path_out, self.folder_model))
+        # Todo: replace name model by param info
         self.fname_model = str(self.param.im_size)+"x"+str(self.param.im_depth)+"_"+str(self.param.num_layer)+"_"+str(self.param.batch_size)+"_"+str(self.param.epochs)+"_model.ckpt"
         #
         self.folder_results ='results'
@@ -150,10 +169,13 @@ class Classification():
         self.batch_index_train = 0
         self.batch_index_valid = 0
         self.batch_index_test = 0
-        self.list_training_subjects = []
-        self.list_training_subjects_labels = []
+        self.list_train_subjects = []
+        self.list_train_subjects_labels = []
         self.list_test_subjects = []
         self.list_test_subjects_labels = []
+        self.list_valid_subjects = []
+        self.list_valid_subjects_labels = []
+
         K.set_image_data_format('channels_last')  # defined as b/w images throughout
         ## set config to True to look at ressource usage and disk usage
         self.sess = tf.InteractiveSession(config=tf.ConfigProto(log_device_placement=False))
@@ -161,10 +183,12 @@ class Classification():
         self.y_ = tf.placeholder(tf.float32, shape=[None, self.param.nlabel])  # [None, 10]
         self.test_accuracy_list = []
         # Include keep_prob in feed_dict to control dropout rate.
+
+
     def build_vol_classifier(self):
         
-        self.features = 32
-        self.channels = 1 
+        self.features = self.param.features # self.features is gonna be updated later on
+        self.channels = 1
         self.list_weight_tensors = [] 
         self.list_bias_tensors = []
         self.list_relu_tensors = []
@@ -188,8 +212,8 @@ class Classification():
             return tf.nn.conv3d(x, W, strides=[1, 1, 1, 1, 1], padding='SAME') # conv2d, [1, 1, 1, 1]
 
         # Pooling: max pooling over 2x2 blocks
-        def max_pool_4x4(x):  # tf.nn.max_pool. ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1]
-            return tf.nn.max_pool3d(x, ksize=[1, 4, 4, 4, 1], strides=[1, 4, 4, 4, 1], padding='SAME')
+        def max_pool(x, kernel=4):  # tf.nn.max_pool. ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1]
+            return tf.nn.max_pool3d(x, ksize=[1, kernel, kernel, kernel, 1], strides=[1, kernel, kernel, kernel, 1], padding='SAME')
 
 
         
@@ -206,7 +230,7 @@ class Classification():
             self.list_channels.append(self.channels)
             
             print(input_image.get_shape())
-            W_conv = weight_variable([5, 5, 5, self.channels, self.features])
+            W_conv = weight_variable([self.param.kernel_conv, self.param.kernel_conv, self.param.kernel_conv, self.channels, self.features])
             self.list_weight_tensors.append(W_conv)
             b_conv = bias_variable([self.features])
             self.list_bias_tensors.append(b_conv)
@@ -219,7 +243,7 @@ class Classification():
 
             self.list_relu_tensors.append(relu_layer)
             print(relu_layer.get_shape())
-            input_image = max_pool_4x4(relu_layer)
+            input_image = max_pool(relu_layer, kernel=self.param.kernel_max_pool)
             self.list_max_pooled_tensors.append(input_image)
             print(input_image.get_shape())
 
@@ -242,11 +266,10 @@ class Classification():
         #W_fc1 = weight_variable([(self.param.im_size / 2**(self.param.num_layer))*(self.param.im_size / 2**(self.param.num_layer))*(self.param.im_depth / 2**(self.param.num_layer))*self.features, 1024])  # [7*7*64, 1024]
         weight_dim1 = last_max_pool_dim[1]*last_max_pool_dim[2]*last_max_pool_dim[3]*last_max_pool_dim[4]
 
-        number_neurons = self.param.num_neuron
-        W_fc1 = weight_variable([weight_dim1, number_neurons])  # [7*7*64, 1024]
+        W_fc1 = weight_variable([weight_dim1, self.param.num_neuron])  # [7*7*64, 1024]
 
         print(W_fc1.shape)
-        b_fc1 = bias_variable([number_neurons]) # [1024]]
+        b_fc1 = bias_variable([self.param.num_neuron]) # [1024]]
         
         #h_pool2_flat = tf.reshape(self.list_max_pooled_tensors[-1], [-1, (self.param.im_size / 2**(self.param.num_layer))*(self.param.im_size / 2**(self.param.num_layer))*(self.param.im_depth / 2**(self.param.num_layer))*self.features])  # -> output image: [-1, 7*7*64] = 3136
         h_pool2_flat = tf.reshape(self.list_max_pooled_tensors[-1], [-1, weight_dim1])  # -> output image: [-1, 7*7*64] = 3136
@@ -262,11 +285,11 @@ class Classification():
         print(h_fc1_drop.get_shape)  # -> output: 1024
         
         ## Readout Layer
-        W_fc2 = weight_variable([1024, self.param.nlabel]) # [1024, 10]
-        b_fc2 = bias_variable([self.param.nlabel]) # [10]
+        W_fc2 = weight_variable([self.param.num_neuron, self.param.nlabel]) # [1024, 2]
+        b_fc2 = bias_variable([self.param.nlabel]) # [2]
         
         self.y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2
-        print(self.y_conv.get_shape)  # -> output: 10
+        print(self.y_conv.get_shape)  # -> output: 2
     
         ## Train and Evaluate the Model
         # set up for optimization (optimizer:ADAM)
@@ -278,49 +301,104 @@ class Classification():
         self.sess.run(tf.global_variables_initializer())
         self.sess.run(tf.local_variables_initializer())
 
+    def read_data(self, fname):
+        ##
+        if '.csv' in fname:
+            func_read = pd.read_csv
+        elif '.xls' in fname:
+            func_read = pd.read_excel
+        else:
+            raise ValueError('Format of input subject list is not recognised: ' + fname+'\n--> use .csv or .xls or .xlsx')
+
+        if os.path.isfile(os.path.join(self.param.path_out, self.folder_subj_lists, fname)):
+            data = func_read(os.path.join(self.param.path_out, self.folder_subj_lists, fname))
+        elif os.path.isfile(os.path.join(self.param.path, fname)):
+            data = func_read(os.path.join(self.param.path, fname))
+        elif os.path.isfile(fname):
+            data = func_read(fname)
+        else:
+            raise ValueError('Input subject list not found: ' + fname)
+
+        return data
 
     def get_filenames(self):
-
-        self.list_subjs_master = pd.read_csv(os.path.join(self.param.path_out, self.folder_subj_lists, self.param.fname_master_in))
-
         # name of the columns names in the subjects mastr list:
         col_name_pat_path = 'patient_path'
         col_name_label = 'label'
         col_name_mrn = 'MRN'
 
-        ##split the data
-        if self.param.split == 0.0:
-            self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test = pd.Series([]), self.list_subjs_master[col_name_pat_path], pd.Series([]), self.list_subjs_master[col_name_label], pd.Series([]), self.list_subjs_master[col_name_mrn]
-        elif self.param.split == 1.0:
-            self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test = self.list_subjs_master[col_name_pat_path], pd.Series([]), self.list_subjs_master[col_name_label], pd.Series([]), self.list_subjs_master[col_name_mrn], pd.Series([])
+        n_files = len(self.param.fname_master_in.split(','))
+
+        if n_files == 1:
+            ## loading the subject list
+            self.list_subjs_master = self.read_data(self.param.fname_master_in)
+
+            # Check classes balance
+            n_pos_cases = self.list_subjs_master[self.list_subjs_master[col_name_label] == 1].shape[0]
+            n_neg_cases = self.list_subjs_master[self.list_subjs_master[col_name_label] == 0].shape[0]
+            if abs(n_pos_cases - n_neg_cases) / float(n_pos_cases + n_neg_cases) > 0.1:
+                # classes are more than 10% unbalanced, needs to be corrected
+                label_to_duplicate = int(n_pos_cases<n_neg_cases) # =1 when n_pos_cases < n_neg_cases | =0 n_pos_cases > n_neg_cases
+                print n_pos_cases,'positive cases vs.', n_neg_cases, 'negative cases --> rebalancing classes by duplicating label', label_to_duplicate
+                list_indices_dup = np.random.choice(self.list_subjs_master[self.list_subjs_master[col_name_label] == label_to_duplicate].index, abs(n_pos_cases - n_neg_cases))
+                self.list_subjs_master = self.list_subjs_master.append(self.list_subjs_master.iloc[list_indices_dup])
+
+            ##split the data
+            if self.param.split == 0.0:
+                self.list_train_subjects, self.list_test_subjects, self.list_train_subjects_labels, self.list_test_subjects_labels, self.mrn_training, self.mrn_test = pd.Series([]), self.list_subjs_master[col_name_pat_path], pd.Series([]), self.list_subjs_master[col_name_label], pd.Series([]), self.list_subjs_master[col_name_mrn]
+            elif self.param.split == 1.0:
+                self.list_train_subjects, self.list_test_subjects, self.list_train_subjects_labels, self.list_test_subjects_labels, self.mrn_training, self.mrn_test = self.list_subjs_master[col_name_pat_path], pd.Series([]), self.list_subjs_master[col_name_label], pd.Series([]), self.list_subjs_master[col_name_mrn], pd.Series([])
+            else:
+                self.list_train_subjects, self.list_test_subjects, self.list_train_subjects_labels, self.list_test_subjects_labels, self.mrn_training, self.mrn_test= train_test_split(self.list_subjs_master[col_name_pat_path], self.list_subjs_master[col_name_label], self.list_subjs_master[col_name_mrn], test_size=1 - self.param.split, train_size=self.param.split)
+
+            if self.param.valid_split == 0.0:
+                self.list_train_subjects, self.list_valid_subjects, self.list_train_subjects_labels, self.list_valid_subjects_labels, self.mrn_training, self.mrn_valid = self.list_train_subjects, pd.Series([]), self.list_train_subjects_labels, pd.Series([]), self.mrn_training, pd.Series([])
+            elif self.param.valid_split == 1.0:
+                self.list_train_subjects, self.list_valid_subjects, self.list_train_subjects_labels, self.list_valid_subjects_labels, self.mrn_training, self.mrn_valid = pd.Series([]), self.list_train_subjects, pd.Series([]), self.list_train_subjects_labels, pd.Series([]), self.mrn_training
+            else:
+                self.list_train_subjects, self.list_valid_subjects, self.list_train_subjects_labels, self.list_valid_subjects_labels, self.mrn_training, self.mrn_valid = train_test_split(self.list_train_subjects, self.list_train_subjects_labels, self.mrn_training, test_size=self.param.valid_split, train_size=1 - self.param.valid_split)
+
+            self.list_train_subjects_labels = self.list_train_subjects_labels.values
+            self.list_valid_subjects_labels = self.list_valid_subjects_labels.values
+            self.list_test_subjects_labels = self.list_test_subjects_labels.values
+
+            #strip whitespace from patient path data
+            self.list_train_subjects = list(self.list_train_subjects.str.strip()) if len(self.list_train_subjects) != 0 else list(self.list_train_subjects)
+            self.list_valid_subjects = list(self.list_valid_subjects.str.strip()) if len(self.list_valid_subjects) != 0 else list(self.list_valid_subjects)
+            self.list_test_subjects = list(self.list_test_subjects.str.strip()) if len(self.list_test_subjects) != 0 else list(self.list_test_subjects)
+
+            train = pd.DataFrame({col_name_mrn: self.mrn_training, col_name_pat_path:self.list_train_subjects, col_name_label:self.list_train_subjects_labels})
+            valid = pd.DataFrame({col_name_mrn: self.mrn_valid, col_name_pat_path:self.list_valid_subjects, col_name_label:self.list_valid_subjects_labels})
+            test = pd.DataFrame({col_name_mrn: self.mrn_test, col_name_pat_path:self.list_test_subjects, col_name_label: self.list_test_subjects_labels})
+
+        elif n_files == 3:
+            fname_train, fname_valid, fname_test = self.param.fname_master_in.split(',')
+
+            train = self.read_data(fname_train)
+            valid = self.read_data(fname_valid)
+            test = self.read_data(fname_test)
+
         else:
-            self.list_subj_train, self.list_subj_test, self.list_subj_train_labels, self.list_subj_test_labels, self.mrn_training, self.mrn_test= train_test_split(self.list_subjs_master[col_name_pat_path], self.list_subjs_master[col_name_label], self.list_subjs_master[col_name_mrn], test_size=1-self.param.split, train_size=self.param.split)
+            raise ValueError('Input subject list not found: ' + self.param.fname_master_in)
 
-        if self.param.valid_split == 0.0:
-            self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid = self.list_subj_train, pd.Series([]), self.list_subj_train_labels, pd.Series([]), self.mrn_training, pd.Series([])
-        elif self.param.valid_split == 1.0:
-            self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid = pd.Series([]), self.list_subj_train, pd.Series([]), self.list_subj_train_labels, pd.Series([]), self.mrn_training
-        else:
-            self.list_subj_train, self.list_subj_valid, self.list_subj_train_labels, self.list_subj_valid_labels, self.mrn_training, self.mrn_valid = train_test_split(self.list_subj_train, self.list_subj_train_labels, self.mrn_training, test_size=self.param.valid_split ,train_size=1-self.param.valid_split)
+        # remove possible duplicates from test set (i.e. cases used in the training set)
+        list_in_train = [mrn in list(train.MRN) for mrn in test.MRN]
+        test = test.drop(test.index[list_in_train])
+        list_in_valid = [mrn in list(valid.MRN) for mrn in test.MRN]
+        test = test.drop(test.index[list_in_valid])
 
-        self.list_subj_train_labels = self.list_subj_train_labels.values
-        self.list_subj_valid_labels = self.list_subj_valid_labels.values
-        self.list_subj_test_labels = self.list_subj_test_labels.values
-
-        #strip whitespace from patient path data
-        self.list_subj_train = list(self.list_subj_train.str.strip()) if len(self.list_subj_train) != 0 else list(self.list_subj_train)
-        self.list_subj_valid = list(self.list_subj_valid.str.strip()) if len(self.list_subj_valid) != 0 else list(self.list_subj_valid)
-        self.list_subj_test = list(self.list_subj_test.str.strip()) if len(self.list_subj_test) != 0 else list(self.list_subj_test)
-
-        train = pd.DataFrame({col_name_mrn: self.mrn_training,col_name_pat_path:self.list_subj_train,col_name_label:self.list_subj_train_labels})
-        valid = pd.DataFrame({col_name_mrn: self.mrn_valid, col_name_pat_path:self.list_subj_valid,col_name_label:self.list_subj_valid_labels})
-        test = pd.DataFrame({col_name_mrn: self.mrn_test,col_name_pat_path:self.list_subj_test,col_name_label: self.list_subj_test_labels})
+        self.list_train_subjects = list(train[col_name_pat_path])
+        self.list_valid_subjects = list(valid[col_name_pat_path])
+        self.list_test_subjects = list(test[col_name_pat_path])
+        self.list_train_subjects_labels = list(train[col_name_label])
+        self.list_valid_subjects_labels = list(valid[col_name_label])
+        self.list_test_subjects_labels = list(test[col_name_label])
 
         train.to_csv(os.path.join(self.param.path_out, self.folder_subj_lists, self.fname_csv_train))
         valid.to_csv(os.path.join(self.param.path_out, self.folder_subj_lists, self.fname_csv_valid))
         test.to_csv(os.path.join(self.param.path_out, self.folder_subj_lists, self.fname_csv_test))
 
-        
+
     def get_CT_data(self, data_set, data_set_labels, batch_index):
         
         max = len(data_set)
@@ -375,23 +453,23 @@ class Classification():
 
         for i in range(self.param.epochs):
             if self.batch_index_train == 0:
-                self.list_subj_train = np.array(self.list_subj_train)
-                shuffle_ind = np.arange(len(self.list_subj_train))
+                self.list_train_subjects = np.array(self.list_train_subjects)
+                shuffle_ind = np.arange(len(self.list_train_subjects))
                 np.random.shuffle(shuffle_ind)
-                self.list_subj_train = self.list_subj_train[shuffle_ind]
-                self.list_subj_train_labels = self.list_subj_train_labels[shuffle_ind]
+                self.list_train_subjects = self.list_train_subjects[shuffle_ind]
+                self.list_train_subjects_labels = self.list_train_subjects_labels[shuffle_ind]
                 #
-            batch_train = self.get_CT_data(self.list_subj_train, self.list_subj_train_labels, self.batch_index_train)
+            batch_train = self.get_CT_data(self.list_train_subjects, self.list_train_subjects_labels, self.batch_index_train)
             self.batch_index_train = batch_train[2]
             print("Training batch %d is loaded"%(i))
             if self.batch_index_valid == 0:
-                self.list_subj_valid = np.array(self.list_subj_valid)
-                shuffle_ind = np.arange(len(self.list_subj_valid))
+                self.list_valid_subjects = np.array(self.list_valid_subjects)
+                shuffle_ind = np.arange(len(self.list_valid_subjects))
                 np.random.shuffle(shuffle_ind)
-                self.list_subj_valid = self.list_subj_valid[shuffle_ind]
-                self.list_subj_valid_labels = self.list_subj_valid_labels[shuffle_ind]
+                self.list_valid_subjects = self.list_valid_subjects[shuffle_ind]
+                self.list_valid_subjects_labels = self.list_valid_subjects_labels[shuffle_ind]
                 #
-            batch_validation = self.get_CT_data(self.list_subj_valid, self.list_subj_valid_labels, self.batch_index_valid)
+            batch_validation = self.get_CT_data(self.list_valid_subjects, self.list_valid_subjects_labels, self.batch_index_valid)
             self.batch_index_valid = batch_validation[2]
             print("Validation batch %d is loaded"%(i))
             # Logging every 100th iteration in the training process.
@@ -427,11 +505,11 @@ class Classification():
             saver = tf.train.import_meta_graph(os.path.join(self.param.path_out, self.folder_model, self.fname_model+'.meta'))
             saver.restore(self.sess, tf.train.latest_checkpoint(os.path.join(self.param.path_out, self.folder_model)))
 
-        n_test_batches = len(self.list_subj_test) / (self.param.batch_size)
-        n_test_batches = n_test_batches + 1 if n_test_batches == 0 else n_test_batches
+        n_test_batches = (len(self.list_test_subjects) / (self.param.batch_size)) + 1
+        n_test_batches = n_test_batches - 1 if len(self.list_test_subjects) % self.param.batch_size == 0 else n_test_batches
         list_pred_labels = []
-        for i in range(n_test_batches+1):
-            testset = self.get_CT_data(self.list_subj_test, self.list_subj_test_labels, self.batch_index_test)
+        for i in range(n_test_batches):
+            testset = self.get_CT_data(self.list_test_subjects, self.list_test_subjects_labels, self.batch_index_test)
             test_accuracy = self.accuracy.eval(feed_dict={self.x_: testset[0], self.y_: testset[1], self.keep_prob: 1.0})
             self.batch_index_test = testset[2]
             self.test_accuracy_list.append(test_accuracy)
@@ -443,9 +521,12 @@ class Classification():
         self.test_accuracy_list = pd.DataFrame(self.test_accuracy_list)
         self.test_accuracy_list.to_csv(os.path.join(self.param.path_out, self.folder_results, self.fname_test_results))
         res_pred = pd.DataFrame(
-            {'path': self.list_subj_test, 'true_labels': self.list_subj_test_labels, 'pred_labels': list_pred_labels})
+            {'path': self.list_test_subjects, 'true_labels': self.list_test_subjects_labels, 'pred_labels': list_pred_labels})
         res_pred.to_csv(os.path.join(self.param.path_out, self.folder_results, 'results_test_prediction.csv'))
 
+        # compute full accuracy:
+        full_test_accuracy = np.sum(np.asarray(list_pred_labels) == np.asarray(self.list_test_subjects_labels))/float(len(self.list_test_subjects_labels))
+        print "Final accuracy: ", full_test_accuracy
         return list_pred_labels
 
 
