@@ -301,6 +301,32 @@ class Classification():
         self.sess.run(tf.global_variables_initializer())
         self.sess.run(tf.local_variables_initializer())
 
+    # def get_class_map_3d(self, label):
+    #     '''
+    #     Largely from https://github.com/philipperemy/tensorflow-class-activation-mapping
+    #
+    #     :param label:
+    #     :return:
+    #     '''
+    #     conv = self.list_max_pooled_tensors[-1]
+    #     #
+    #     output_channels = int(conv.get_shape()[-1])
+    #
+    #     conv_resized = tf.reshape(conv, [self.param.im_size, self.param.im_size, self.param.im_depth])
+    #     #
+    #     W = self.list_weight_tensors[-1]
+    #     label_w = tf.gather(tf.transpose(W), label)
+    #     label_w = tf.reshape(label_w, [-1, output_channels, 1])
+    #     # with tf.variable_scope('LeNet/GAP', reuse=True):
+    #     #     label_w = tf.gather(tf.transpose(tf.get_variable('W')), label)
+    #     #     label_w = tf.reshape(label_w, [-1, output_channels, 1])
+    #     # conv_resized = tf.reshape(conv_resized,
+    #     #                           [-1, self.param.im_size * self.param.im_size * self.param.im_depth, output_channels])
+    #     classmap = tf.matmul(conv_resized, label)  # why was label_w instead of label ??
+    #     classmap = tf.reshape(classmap, [-1, self.param.im_size, self.param.im_size, self.param.im_depth])
+    #     return classmap
+
+
     def read_data(self, fname):
         ##
         if '.csv' in fname:
