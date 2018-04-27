@@ -109,6 +109,11 @@ def get_parser():
                     type=int,
                     dest="features",
                     default=32)
+    parser.add_argument("-training-rate",
+                    help="Initial training rate for the Adam optimizer",
+                    type=float,
+                    dest="training_rate",
+                    default=1e-3)
 
     return parser
 
@@ -151,13 +156,17 @@ class Classification():
         self.folder_acc = 'accuracy'
         if not os.path.isdir(os.path.join(self.param.path_out, self.folder_logs, self.folder_acc)):
             os.mkdir(os.path.join(self.param.path_out, self.folder_logs, self.folder_acc))
+        self.folder_ce = 'cross_entropy'
+        if not os.path.isdir(os.path.join(self.param.path_out, self.folder_logs, self.folder_ce)):
+            os.mkdir(os.path.join(self.param.path_out, self.folder_logs, self.folder_ce))
 
         #
         self.folder_model = 'models'
         if not os.path.isdir(os.path.join(self.param.path_out, self.folder_model)):
             os.mkdir(os.path.join(self.param.path_out, self.folder_model))
-        # Todo: replace name model by param info
-        self.fname_model = str(self.param.im_size)+"x"+str(self.param.im_depth)+"_"+str(self.param.num_layer)+"_"+str(self.param.batch_size)+"_"+str(self.param.epochs)+"_model.ckpt"
+
+        # self.fname_model = str(self.param.im_size)+"x"+str(self.param.im_depth)+"_"+str(self.param.num_layer)+"_"+str(self.param.batch_size)+"_"+str(self.param.epochs)+"_model.ckpt"
+        self.fname_model = info_param+"_model.ckpt"
         #
         self.folder_results ='results'
         if not os.path.isdir(os.path.join(self.param.path_out, self.folder_results)):
@@ -294,7 +303,8 @@ class Classification():
         ## Train and Evaluate the Model
         # set up for optimization (optimizer:ADAM)
         self.cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.y_, logits=self.y_conv))
-        self.train_step = tf.train.AdamOptimizer(1e-3).minimize(self.cross_entropy)  # 1e-4
+        self.optimizer = tf.train.AdamOptimizer(self.param.training_rate)
+        self.train_step = self.optimizer.minimize(self.cross_entropy)
         self.correct_prediction = tf.equal(tf.argmax(self.y_conv,1), tf.argmax(self.y_,1))
         self.accuracy = tf.reduce_mean(tf.cast(self.correct_prediction, tf.float32))
         
@@ -471,15 +481,22 @@ class Classification():
 
     def run_model(self):
 
-        writer_train = tf.summary.FileWriter(os.path.join(self.param.path_out, self.folder_logs, self.folder_acc, "training"))
-        writer_val = tf.summary.FileWriter(os.path.join(self.param.path_out, self.folder_logs, self.folder_acc, "validation"))
+        writer_acc_train = tf.summary.FileWriter(os.path.join(self.param.path_out, self.folder_logs, self.folder_acc, "training"))
+        writer_acc_val = tf.summary.FileWriter(os.path.join(self.param.path_out, self.folder_logs, self.folder_acc, "validation"))
+
+        writer_ce_train = tf.summary.FileWriter(os.path.join(self.param.path_out, self.folder_logs, self.folder_ce, "training"))
+        writer_ce_val = tf.summary.FileWriter(os.path.join(self.param.path_out, self.folder_logs, self.folder_ce, "validation"))
 
         tf.summary.scalar("accuracy", self.accuracy)
+        tf.summary.scalar("cross entropy", self.cross_entropy)
+        tf.summary.scalar("training rate", self.optimizer._lr)
+
         write_op = tf.summary.merge_all()
 
         for i in range(self.param.epochs):
             if self.batch_index_train == 0:
                 self.list_train_subjects = np.array(self.list_train_subjects)
+                self.list_train_subjects_labels = np.asarray(self.list_train_subjects_labels )
                 shuffle_ind = np.arange(len(self.list_train_subjects))
                 np.random.shuffle(shuffle_ind)
                 self.list_train_subjects = self.list_train_subjects[shuffle_ind]
@@ -490,6 +507,7 @@ class Classification():
             print("Training batch %d is loaded"%(i))
             if self.batch_index_valid == 0:
                 self.list_valid_subjects = np.array(self.list_valid_subjects)
+                self.list_valid_subjects_labels = np.array(self.list_valid_subjects_labels)
                 shuffle_ind = np.arange(len(self.list_valid_subjects))
                 np.random.shuffle(shuffle_ind)
                 self.list_valid_subjects = self.list_valid_subjects[shuffle_ind]
@@ -502,18 +520,21 @@ class Classification():
             if i%2 == 0:
                 #train_accuracy = self.accuracy.eval(feed_dict={self.x_:batch_train[0], self.y_: batch_train[1], self.keep_prob: 1.0})
                 train_accuracy, train_summary, cross_entropy = self.sess.run([self.accuracy, write_op, self.cross_entropy], feed_dict={self.x_:batch_train[0], self.y_: batch_train[1], self.keep_prob: 1.0})
-                writer_train.add_summary(train_summary, i)
-                writer_train.flush()
-
+                writer_acc_train.add_summary(train_summary, i)
+                writer_acc_train.flush()
+                #
                 valid_accuracy, valid_summary = self.sess.run([self.accuracy, write_op], feed_dict={self.x_:batch_validation[0], self.y_: batch_validation[1], self.keep_prob: 1.0})
-                writer_val.add_summary(valid_summary, i)
-                writer_val.flush()
+                writer_acc_val.add_summary(valid_summary, i)
+                writer_acc_val.flush()
 
-                print("step %d, training accuracy: %g, validation accuracy: %g, training cross entropy: %g"%(i, train_accuracy,valid_accuracy,cross_entropy))
+                print("step %d, training accuracy: %g, validation accuracy: %g, training cross entropy: %g, training rate: %f "%(i, train_accuracy,valid_accuracy,cross_entropy, self.optimizer._lr))
 
                 if i > 50:
                     if valid_accuracy <= 0.5:
                         print batch_validation[3]
+            if i%500 == 0:
+                saver_tmp = tf.train.Saver()
+                save_path_tmp = saver_tmp.save(self.sess, os.path.join(self.param.path_out, self.folder_model, self.fname_model+'epoch'+str(i)))
 
             self.train_step.run(feed_dict={self.x_: batch_train[0], self.y_: batch_train[1], self.keep_prob: 0.9})
 
