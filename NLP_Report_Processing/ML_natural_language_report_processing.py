@@ -216,13 +216,13 @@ class Radiology_Report_NLP:
         if not os.path.isdir(os.path.join(self.param.output_path, folder_word2vec)):
             os.mkdir(os.path.join(self.param.output_path, folder_word2vec))
         # preprocess train and apply datasets
+        parent_folder = '/'.join(self.param.output_path.split('/')[:-1])
+        path_corpus = parent_folder if len(self.param.max_ngrams) > 1 else self.param.output_path
+
         if not self.param.apply_all:
             fname_csv_train = 'Word_to_vec_X_Sparse_Matrix_train.csv'
             fname_csv_apply = 'Word_to_vec_X_Sparse_Matrix_apply.csv'
             if not self.param.skip_preprocessing:
-                parent_folder = '/'.join(self.param.output_path.split('/')[:-1])
-
-                path_corpus = parent_folder if len(self.param.max_ngrams)>1 else self.param.output_path
 
                 corpus_train = np.load(os.path.join(path_corpus, 'corpus_train.npy')) if os.path.isfile(os.path.join(path_corpus, 'corpus_train.npy')) else None
                 corpus_apply = np.load(os.path.join(path_corpus, 'corpus_apply.npy')) if os.path.isfile(os.path.join(path_corpus, 'corpus_apply.npy')) else None
@@ -246,8 +246,13 @@ class Radiology_Report_NLP:
             fname_csv_full = 'Word_to_vec_X_Sparse_Matrix_full_data_apply.csv'
             if not self.param.skip_preprocessing:
                 self.vocabulary = pickle.load(open(self.param.output_path + "/vocabulary.pickle", "rb"))
-                self.X_apply, self.text_feature_apply = self.report_preprocessing(self.reports_apply, vocab_set=1)
+                #
+                corpus_apply_all = np.load(os.path.join(path_corpus, 'corpus_apply_all.npy')) if os.path.isfile(os.path.join(path_corpus, 'corpus_apply_all.npy')) else None
+                self.X_apply, self.text_feature_apply, corpus_apply_all_new = self.report_preprocessing(self.reports_apply, vocab_set=1, corpus=corpus_apply_all)
                 self.X_apply.to_csv(os.path.join(self.param.output_path, folder_word2vec, fname_csv_full))
+                if corpus_apply_all is None:
+                    np.save(os.path.join(path_corpus, 'corpus_apply_all.npy'), corpus_apply_all_new)
+
             else:
                 self.X_apply = pd.read_csv(os.path.join(self.param.output_path, folder_word2vec, fname_csv_full))
         #
