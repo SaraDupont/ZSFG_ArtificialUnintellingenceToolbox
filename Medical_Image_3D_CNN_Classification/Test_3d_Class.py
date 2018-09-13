@@ -357,11 +357,11 @@ class Classification():
 
         return data
 
-    def get_filenames(self):
+    def get_filenames(self, col_name_pat_path='patient_path', col_name_label='label', col_name_mrn='MRN'):
         # name of the columns names in the subjects mastr list:
-        col_name_pat_path = 'patient_path'
-        col_name_label = 'label'
-        col_name_mrn = 'MRN'
+        # col_name_pat_path = 'patient_path'
+        # col_name_label = 'label'
+        # col_name_mrn = 'MRN'
 
         n_files = len(self.param.fname_master_in.split(','))
 
@@ -372,7 +372,7 @@ class Classification():
             # Check classes balance
             n_pos_cases = self.list_subjs_master[self.list_subjs_master[col_name_label] == 1].shape[0]
             n_neg_cases = self.list_subjs_master[self.list_subjs_master[col_name_label] == 0].shape[0]
-            if abs(n_pos_cases - n_neg_cases) / float(n_pos_cases + n_neg_cases) > 0.1:
+            if float(n_pos_cases + n_neg_cases) > 0 and abs(n_pos_cases - n_neg_cases) / float(n_pos_cases + n_neg_cases) > 0.1:
                 # classes are more than 10% unbalanced, needs to be corrected
                 label_to_duplicate = int(n_pos_cases<n_neg_cases) # =1 when n_pos_cases < n_neg_cases | =0 n_pos_cases > n_neg_cases
                 print n_pos_cases,'positive cases vs.', n_neg_cases, 'negative cases --> rebalancing classes by duplicating label', label_to_duplicate
@@ -468,7 +468,8 @@ class Classification():
             resized_image = skimage.transform.resize(CT_data, (self.param.im_size,self.param.im_size,self.param.im_depth), order=3, mode='reflect')
 
             x_data.append(resized_image)
-            y_data[index, data_set_labels[i]] = 1  # assign 1 to corresponding column (one hot encoding)
+            if not np.isnan(data_set_labels[i]):
+                y_data[index, data_set_labels[i]] = 1  # assign 1 to corresponding column (one hot encoding)
 
             index += 1
     
